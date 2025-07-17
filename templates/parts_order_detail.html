@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Parts Order #{{ order.id }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body class="p-4">
+  <div class="container">
+
+    <h1 class="mb-3">Parts Order #{{ order.id }}</h1>
+    <p><strong>Email:</strong> {{ order.email }}</p>
+    <p><strong>Date:</strong> {{ order.date.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+
+    <!-- Order Status Form -->
+    <form method="POST" class="mb-5">
+      <label for="status" class="form-label">Order Status</label>
+      <select id="status" name="status" class="form-select">
+        <option value="" {% if not order.status %}selected{% endif %}>No status</option>
+        <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+        <option value="in_progress" {% if order.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+        <option value="sent" {% if order.status == 'sent' %}selected{% endif %}>Sent</option>
+      </select>
+      <button type="submit" class="btn btn-primary mt-2">Update Status</button>
+      <a href="{{ url_for('parts_orders_list') }}" class="btn btn-secondary mt-2 ms-2">Back</a>
+    </form>
+
+    <!-- Order Item Summary Table -->
+    <h2>Ordered Items</h2>
+    <table class="table table-bordered mb-5">
+      <thead>
+        <tr>
+          <th>Part Number</th>
+          <th>Description</th>
+          <th>Ordered</th>
+          <th>Sent</th>
+          <th>Left to Send</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in order.items %}
+        <tr>
+          <td>{{ item.part_number }}</td>
+          <td>{{ item.description }}</td>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.quantity_sent }}</td>
+          <td>{{ item.quantity - item.quantity_sent }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="text-center text-muted">No items found in this order.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Dispatch Form -->
+    <h2>Dispatch Items</h2>
+    <form method="POST">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Part Number</th>
+            <th>Ordered</th>
+            <th>Sent So Far</th>
+            <th>Send Now</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in order.items %}
+          {% set remaining = item.quantity - item.quantity_sent %}
+          <tr>
+            <td>{{ item.part_number }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.quantity_sent }}</td>
+            <td>
+              {% if remaining > 0 %}
+                <input type="number" name="send_{{ item.id }}" class="form-control" min="0" max="{{ remaining }}" value="0">
+              {% else %}
+                <input type="number" class="form-control" value="0" disabled>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="btn btn-success" name="dispatch" value="true">Submit Dispatch</button>
+    </form>
+
+  </div>
+</body>
+</html>
