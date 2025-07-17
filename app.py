@@ -3,8 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'devkey'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://servitech_db_user:79U6KaAxlHdUfOeEt1iVDc65KXFLPie2@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com/servitech_db'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
