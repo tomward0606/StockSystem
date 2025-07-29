@@ -1,12 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import os
-
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+app.config['SECRET_KEY'] = 'devkey'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://servitech_db_user:79U6KaAxlHdUfOeEt1iVDc65KXFLPie2@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com/servitech_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -35,6 +33,7 @@ class DispatchNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     engineer_email = db.Column(db.String(120), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
+    picker_name = db.Column(db.String(100), nullable=True)  # NEW FIELD ADDED
     items = db.relationship("DispatchItem", backref="dispatch_note", cascade="all, delete-orphan")
 
 class DispatchItem(db.Model):
@@ -76,10 +75,30 @@ def parts_order_detail(email):
         PartsOrderItem.quantity > PartsOrderItem.quantity_sent
     ).all()
 
+    # Fetch dispatch history for this engineer (NEW)
+    engineer_dispatches = db.session.query(DispatchNote).filter(
+        DispatchNote.engineer_email == email
+    ).order_by(DispatchNote.date.desc()).all()
+
     if request.method == 'POST':
+        # Get picker information from form
+        picker_name = request.form.get('picker_name', '').strip()
+        custom_picker_name = request.form.get('custom_picker_name', '').strip()
+        
+        # Use custom name if "other" was selected
+        if picker_name == 'other' and custom_picker_name:
+            final_picker_name = custom_picker_name
+        elif picker_name and picker_name != 'other':
+            final_picker_name = picker_name
+        else:
+            flash("Please select or enter a picker name.", "error")
+            return render_template('parts_order_detail.html', email=email, items=items, engineer_dispatches=engineer_dispatches)
+
         # Create new dispatch note for the engineer
-        dispatch = DispatchNote(engineer_email=email)
+        dispatch = DispatchNote(engineer_email=email, picker_name=final_picker_name)
         db.session.add(dispatch)
+
+        dispatch_created = False  # Track if any items were actually dispatched
 
         for item in items:
             send_key = f'send_{item.id}'
@@ -95,15 +114,21 @@ def parts_order_detail(email):
                 )
                 db.session.add(dispatch_item)
                 item.quantity_sent += to_send
+                dispatch_created = True
 
             # Back order checkbox
             item.back_order = back_order_key in request.form
 
-        db.session.commit()
-        flash("Dispatch recorded successfully.", "success")
+        if dispatch_created:
+            db.session.commit()
+            flash(f"Dispatch recorded successfully. Picked by: {final_picker_name}", "success")
+        else:
+            db.session.rollback()
+            flash("No items were dispatched. Please enter quantities to dispatch.", "warning")
+            
         return redirect(url_for('parts_order_detail', email=email))
 
-    return render_template('parts_order_detail.html', email=email, items=items)
+    return render_template('parts_order_detail.html', email=email, items=items, engineer_dispatches=engineer_dispatches)
 
 @app.route('/admin/dispatched_orders')
 def dispatched_orders():
