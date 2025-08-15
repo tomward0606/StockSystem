@@ -23,16 +23,14 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # ── Mail (Gmail via App Password) ─────────────────────────────────────────────
-# To switch accounts, update MAIL_USERNAME + MAIL_PASSWORD (App Password).
-# You can also set env vars to avoid hardcoding secrets in code.
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
 app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "servitech.stock@gmail.com")
-app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "qmorqthzpbxqnkrp")
+app.config["MAIL_USERNAME"] = os.environ["MAIL_USERNAME"]
+app.config["MAIL_PASSWORD"] = os.environ["MAIL_PASSWORD"]
 app.config["MAIL_DEFAULT_SENDER"] = (
     os.environ.get("MAIL_DEFAULT_NAME", "Servitech Stock"),
-    os.environ.get("MAIL_DEFAULT_EMAIL", "servitech.stock@gmail.com"),
+    os.environ.get("MAIL_DEFAULT_EMAIL", os.environ["MAIL_USERNAME"]),
 )
 
 db = SQLAlchemy(app)
@@ -421,4 +419,5 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
 
