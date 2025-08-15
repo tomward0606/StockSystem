@@ -9,25 +9,27 @@
 </head>
 <body class="p-4">
   <div class="container bg-white p-4 shadow rounded">
-    <div class="header-bar">
+    <div class="header-bar d-flex justify-content-between align-items-center mb-3">
       <h2 class="mb-0">Outstanding Parts Summary</h2>
       <a href="{{ url_for('dispatched_orders') }}" class="btn btn-outline-dark btn-dispatch-history">
         View Dispatch History
       </a>
     </div>
 
-    <table class="table table-hover table-bordered align-middle">
+    <!-- Outstanding section -->
+    <h5 class="mb-3">Outstanding Items</h5>
+    <table class="table table-hover table-bordered align-middle mb-5">
       <thead class="table-light">
         <tr>
           <th scope="col">Engineer Email</th>
-          <th scope="col">Total Outstanding Qty</th>
+          <th scope="col" class="text-end">Total Outstanding Qty</th>
         </tr>
       </thead>
       <tbody>
-        {% for email, total in data %}
+        {% for email, total in data if total > 0 %}
         <tr>
           <td><a href="{{ url_for('parts_order_detail', email=email) }}" class="fw-semibold text-primary">{{ email }}</a></td>
-          <td>{{ total }}</td>
+          <td class="text-end">{{ total }}</td>
         </tr>
         {% else %}
         <tr>
@@ -36,6 +38,30 @@
         {% endfor %}
       </tbody>
     </table>
+
+    <!-- No outstanding section -->
+    <h5 class="mb-3">No Outstanding Items</h5>
+    <table class="table table-hover table-bordered align-middle">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">Engineer Email</th>
+          <th scope="col" class="text-end">Total Outstanding Qty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email, total in data if total == 0 %}
+        <tr>
+          <td><a href="{{ url_for('parts_order_detail', email=email) }}" class="fw-semibold text-secondary">{{ email }}</a></td>
+          <td class="text-end text-muted">0</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="2" class="text-center text-muted">All engineers have outstanding parts.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
   </div>
 </body>
 </html>

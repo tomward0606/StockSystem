@@ -1,0 +1,89 @@
+<!-- templates/dispatch_note.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dispatch Note #{{ dispatch.id }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body class="p-3">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-start">
+      <div>
+        <h3 class="mb-1">Dispatch Note #{{ dispatch.id }}</h3>
+        <div class="text-muted">
+          Date: {{ dispatch.date.strftime('%Y-%m-%d %H:%M') }}<br>
+          Picker: {{ dispatch.picker_name or 'Unknown' }}<br>
+          Engineer: {{ dispatch.engineer_email }}<br>
+          Generated: {{ generated_at.strftime('%Y-%m-%d %H:%M UTC') if generated_at else '' }}
+        </div>
+      </div>
+      <button onclick="window.print()" class="btn btn-outline-secondary btn-sm no-print">Print</button>
+    </div>
+
+    <hr>
+
+    <h5>Items Sent</h5>
+    <table class="table table-sm table-bordered">
+      <thead class="table-light">
+        <tr>
+          <th>Part Number</th>
+          <th>Description</th>
+          <th>Qty Sent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if sent_items %}
+          {% for s in sent_items %}
+          <tr>
+            <td>{{ s.part_number }}</td>
+            <td>{{ s.description or '' }}</td>
+            <td>{{ s.quantity_sent }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="3">No items recorded on this dispatch.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <h5>Still on Back Order (as of now)</h5>
+    <table class="table table-sm table-bordered">
+      <thead class="table-light">
+        <tr>
+          <th>Part Number</th>
+          <th>Description</th>
+          <th>Qty Remaining</th>
+          <th>Order Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if back_orders %}
+          {% set any_row = false %}
+          {% for bo in back_orders %}
+            {% set remaining = (bo.quantity or 0) - (bo.quantity_sent or 0) %}
+            {% if remaining > 0 %}
+              {% set any_row = true %}
+              <tr>
+                <td>{{ bo.part_number }}</td>
+                <td>{{ bo.description }}</td>
+                <td>{{ remaining }}</td>
+                <td>{{ bo.order.date.strftime('%Y-%m-%d') }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not any_row %}
+            <tr><td colspan="4">No items currently on back order.</td></tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="4">No items currently on back order.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

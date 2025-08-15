@@ -9,18 +9,34 @@
   <script>
     function confirmDispatch() {
       const picker = document.getElementById('picker_name').value;
+      const custom = document.getElementById('custom_picker_name');
       if (!picker.trim()) {
         alert('Please select a picker name.');
         return false;
       }
+      if (picker === 'other') {
+        if (!custom.value.trim()) {
+          alert('Please enter a custom picker name.');
+          custom.focus();
+          return false;
+        }
+      }
       return confirm('Are you sure you want to dispatch these parts?');
     }
 
+    function onPickerChange() {
+      const picker = document.getElementById('picker_name');
+      const customWrap = document.getElementById('custom_picker_wrap');
+      if (picker.value === 'other') {
+        customWrap.classList.remove('d-none');
+      } else {
+        customWrap.classList.add('d-none');
+      }
+    }
+
     function printDispatchNote(dispatchId) {
-      // Create a new window with only the specific dispatch note
       const dispatchElement = document.getElementById('dispatch-' + dispatchId);
       if (!dispatchElement) return;
-      
       const printWindow = window.open('', '_blank');
       printWindow.document.write(`
         <!DOCTYPE html>
@@ -29,10 +45,7 @@
           <title>Dispatch Note</title>
           <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
           <style>
-            @media print {
-              .no-print { display: none; }
-              body { font-size: 12px; }
-            }
+            @media print { .no-print { display: none; } body { font-size: 12px; } }
           </style>
         </head>
         <body class="p-3">
@@ -43,11 +56,16 @@
       printWindow.document.close();
       printWindow.print();
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      onPickerChange();
+      document.getElementById('picker_name').addEventListener('change', onPickerChange);
+    });
   </script>
 </head>
 <body class="p-4">
   <div class="container bg-white p-4 shadow rounded">
-    <div class="header-bar mb-4">
+    <div class="header-bar mb-4 d-flex justify-content-between align-items-center">
       <h2 class="mb-0">Outstanding Parts for {{ email }}</h2>
       <a href="{{ url_for('parts_orders_list') }}" class="btn btn-outline-secondary">← Back to Summary</a>
     </div>
@@ -58,7 +76,7 @@
         <h5 class="mb-0">Outstanding Items</h5>
       </div>
       <div class="card-body">
-        <form method="POST" onsubmit="return confirmDispatch();">
+        <form id="dispatch_form" method="POST" onsubmit="return confirmDispatch();">
           <table class="table table-hover table-bordered align-middle">
             <thead class="table-light">
               <tr>
@@ -70,6 +88,7 @@
                 <th>Qty Remaining</th>
                 <th>Dispatch</th>
                 <th>Back Order</th>
+                <th style="width:1%; white-space:nowrap;">Cancel</th>
               </tr>
             </thead>
             <tbody>
@@ -82,7 +101,7 @@
                 <td>{{ item.quantity }}</td>
                 <td>{{ item.quantity_sent }}</td>
                 <td>{{ remaining }}</td>
-                <td>
+                <td style="width:140px">
                   <input type="number"
                          name="send_{{ item.id }}"
                          class="form-control dispatch-input"
@@ -90,8 +109,17 @@
                          max="{{ remaining }}"
                          value="0">
                 </td>
-                <td class="text-center">
+                <td class="text-center" style="width:80px">
                   <input type="checkbox" name="back_order_{{ item.id }}" {% if item.back_order %}checked{% endif %}>
+                </td>
+                <td class="text-nowrap">
+                  <!-- Standalone cancel submit (does NOT use the dispatch form) -->
+                  <button type="submit"
+                          class="btn btn-sm btn-danger"
+                          form="cancel-{{ item.id }}"
+                          onclick="return confirm('Remove this item from the order?');">
+                    Cancel
+                  </button>
                 </td>
               </tr>
               {% endfor %}
@@ -99,15 +127,20 @@
           </table>
 
           <!-- Picker Selection -->
-          <div class="row mb-3">
-            <div class="col-md-6">
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
               <label for="picker_name" class="form-label">Picked by:</label>
               <select class="form-select" id="picker_name" name="picker_name" required>
                 <option value="">Select picker...</option>
                 <option value="Jayn">Jayn</option>
                 <option value="Dan">Dan</option>
                 <option value="Thomas">Thomas</option>
+                <option value="other">Other…</option>
               </select>
+            </div>
+            <div class="col-md-4 d-none" id="custom_picker_wrap">
+              <label for="custom_picker_name" class="form-label">Custom picker name:</label>
+              <input type="text" id="custom_picker_name" name="custom_picker_name" class="form-control" placeholder="Enter name">
             </div>
           </div>
 
@@ -115,6 +148,42 @@
             <button type="submit" class="btn btn-success">Submit Dispatch</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Still on Back Order (read-only summary) -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <h5 class="mb-0">Still on Back Order</h5>
+      </div>
+      <div class="card-body">
+        {% if items %}
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Part Number</th>
+                <th>Description</th>
+                <th>Qty Remaining</th>
+                <th>Order Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+              {% set remaining = item.quantity - item.quantity_sent %}
+              {% if remaining > 0 %}
+              <tr>
+                <td>{{ item.part_number }}</td>
+                <td>{{ item.description }}</td>
+                <td>{{ remaining }}</td>
+                <td>{{ item.order.date.strftime('%Y-%m-%d') }}</td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="text-muted mb-0">No items on back order.</p>
+        {% endif %}
       </div>
     </div>
 
@@ -138,7 +207,8 @@
               </button>
             </div>
 
-            <table class="table table-sm table-bordered">
+            <!-- Items sent in this dispatch -->
+            <table class="table table-sm table-bordered mb-3">
               <thead class="table-light">
                 <tr>
                   <th>Part Number</th>
@@ -156,6 +226,36 @@
                 {% endfor %}
               </tbody>
             </table>
+
+            <!-- Back Orders as of now (shown under each dispatch card, included in print) -->
+            <h6 class="mt-3">Still on Back Order (as of now)</h6>
+            {% if items %}
+              <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                  <tr>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Qty Remaining</th>
+                    <th>Order Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for bo in items %}
+                  {% set rem = bo.quantity - bo.quantity_sent %}
+                  {% if rem > 0 %}
+                  <tr>
+                    <td>{{ bo.part_number }}</td>
+                    <td>{{ bo.description }}</td>
+                    <td>{{ rem }}</td>
+                    <td>{{ bo.order.date.strftime('%Y-%m-%d') }}</td>
+                  </tr>
+                  {% endif %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="text-muted">No items on back order.</p>
+            {% endif %}
           </div>
           {% endfor %}
         {% else %}
@@ -165,8 +265,11 @@
     </div>
   </div>
 
-  <script>
-    // No additional scripts needed for simple dropdown
-  </script>
+  <!-- Hidden standalone cancel forms (one per line), outside the dispatch form -->
+  {% for item in items %}
+  <form id="cancel-{{ item.id }}" method="POST" action="{{ url_for('cancel_order_item', item_id=item.id) }}">
+    <input type="hidden" name="email" value="{{ email }}">
+  </form>
+  {% endfor %}
 </body>
 </html>
