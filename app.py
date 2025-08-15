@@ -1,17 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Servitech STOCK SYSTEM (Cleaned)
+# - Admin dispatch: record picks, auto-email engineer (sent + back orders)
+# - Admin views: outstanding list, order detail, dispatched history
+# - Test helpers: test email + dummy dispatch email
+# ──────────────────────────────────────────────────────────────────────────────
+
+from datetime import datetime
+import os
+from types import SimpleNamespace
+
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from flask_mail import Mail, Message
+from sqlalchemy import func
 
+# ── App & Config ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'devkey'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://servitech_db_user:79U6KaAxlHdUfOeEt1iVDc65KXFLPie2@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com/servitech_db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "devkey")
+
+# DB: use env var if present, otherwise Render Postgres fallback
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://servitech_db_user:79U6KaAxlHdUfOeEt1iVDc65KXFLPie2@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com/servitech_db",
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# ── Mail (Gmail via App Password) ─────────────────────────────────────────────
+# To switch accounts, update MAIL_USERNAME + MAIL_PASSWORD (App Password).
+# You can also set env vars to avoid hardcoding secrets in code.
+app.config["MAIL_SERVER"] = "smtp.gmail.com"
+app.config["MAIL_PORT"] = 587
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "servitech.stock@gmail.com")
+app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "qmorqthzpbxqnkrp")
+app.config["MAIL_DEFAULT_SENDER"] = (
+    os.environ.get("MAIL_DEFAULT_NAME", "Servitech Stock"),
+    os.environ.get("MAIL_DEFAULT_EMAIL", "servitech.stock@gmail.com"),
+)
 
 db = SQLAlchemy(app)
+mail = Mail(app)
 
-# MODELS
+# ── Models ────────────────────────────────────────────────────────────────────
 class PartsOrder(db.Model):
-    __tablename__ = 'parts_order'
+    __tablename__ = "parts_order"
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -19,125 +51,376 @@ class PartsOrder(db.Model):
     items = db.relationship("PartsOrderItem", backref="order", cascade="all, delete-orphan")
 
 class PartsOrderItem(db.Model):
-    __tablename__ = 'parts_order_item'
+    __tablename__ = "parts_order_item"
     id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(db.Integer, db.ForeignKey('parts_order.id'), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey("parts_order.id"), nullable=False)
     part_number = db.Column(db.String(64))
     description = db.Column(db.String(256))
     quantity = db.Column(db.Integer)
     quantity_sent = db.Column(db.Integer, default=0)
     back_order = db.Column(db.Boolean, default=False)
 
+    @property
+    def qty_remaining(self) -> int:
+        """Remaining = requested - sent (never below 0)."""
+        try:
+            return max(0, int(self.quantity or 0) - int(self.quantity_sent or 0))
+        except Exception:
+            return 0
+
 class DispatchNote(db.Model):
-    __tablename__ = 'dispatch_note'
+    __tablename__ = "dispatch_note"
     id = db.Column(db.Integer, primary_key=True)
     engineer_email = db.Column(db.String(120), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
-    picker_name = db.Column(db.String(100), nullable=True)  # NEW FIELD ADDED
+    picker_name = db.Column(db.String(100), nullable=True)
     items = db.relationship("DispatchItem", backref="dispatch_note", cascade="all, delete-orphan")
 
 class DispatchItem(db.Model):
-    __tablename__ = 'dispatch_item'
+    __tablename__ = "dispatch_item"
     id = db.Column(db.Integer, primary_key=True)
-    dispatch_note_id = db.Column(db.Integer, db.ForeignKey('dispatch_note.id'), nullable=False)
+    dispatch_note_id = db.Column(db.Integer, db.ForeignKey("dispatch_note.id"), nullable=False)
     part_number = db.Column(db.String(64))
     quantity_sent = db.Column(db.Integer)
-    description = db.Column(db.String(256))  
+    description = db.Column(db.String(256))
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def get_back_orders(engineer_email: str):
+    """Return all outstanding items for this engineer (quantity > quantity_sent)."""
+    return (
+        db.session.query(PartsOrderItem)
+        .join(PartsOrder)
+        .filter(
+            PartsOrder.email == engineer_email,
+            PartsOrderItem.quantity > PartsOrderItem.quantity_sent,
+        )
+        .all()
+    )
 
-# ROUTES
-@app.route('/')
+def build_html_email(sent_items, back_orders, dispatch, generated_at=None) -> str:
+    """Build an HTML email body listing sent items and current back orders."""
+    generated_at = generated_at or datetime.utcnow()
+
+    def esc(s):  # small escape helper
+        return s or ""
+
+    sent_rows = (
+        "".join(
+            f"<tr><td>{esc(s.part_number)}</td>"
+            f"<td>{esc(getattr(s, 'description', ''))}</td>"
+            f"<td style='text-align:right'>{int(s.quantity_sent or 0)}</td></tr>"
+            for s in sent_items
+        )
+        or "<tr><td colspan='3' style='text-align:center; color:#666'>(No items on this dispatch)</td></tr>"
+    )
+
+    bo_rows = (
+        "".join(
+            f"<tr><td>{esc(bo.part_number)}</td>"
+            f"<td>{esc(bo.description)}</td>"
+            f"<td style='text-align:right'>{int((bo.quantity or 0) - (bo.quantity_sent or 0))}</td>"
+            f"<td>{bo.order.date.strftime('%d %b %Y')}</td></tr>"
+            for bo in back_orders
+            if (bo.quantity or 0) - (bo.quantity_sent or 0) > 0
+        )
+        or "<tr><td colspan='4' style='text-align:center; color:#666'>No items on back order.</td></tr>"
+    )
+
+    html = f"""
+    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; line-height:1.4">
+      <h2 style="margin:0 0 8px 0">Dispatch Note — {dispatch.date.strftime('%d %b %Y')}</h2>
+      <p style="margin:0 0 12px 0"><strong>Engineer:</strong> {esc(dispatch.engineer_email)}<br>
+      <strong>Picked by:</strong> {esc(dispatch.picker_name or 'Unknown')}<br>
+      <span style="color:#666">Generated at {generated_at.strftime('%d %b %Y %H:%M UTC')}</span></p>
+
+      <h3 style="margin:16px 0 8px 0; font-size:18px">Items Sent</h3>
+      <table width="100%" cellpadding="8" cellspacing="0" border="1" style="border-collapse:collapse; border-color:#ddd">
+        <thead style="background:#f8f9fa">
+          <tr>
+            <th align="left">Part Number</th>
+            <th align="left">Description</th>
+            <th align="right">Quantity Sent</th>
+          </tr>
+        </thead>
+        <tbody>{sent_rows}</tbody>
+      </table>
+
+      <h3 style="margin:16px 0 8px 0; font-size:18px">Still on Back Order</h3>
+      <table width="100%" cellpadding="8" cellspacing="0" border="1" style="border-collapse:collapse; border-color:#ddd">
+        <thead style="background:#f8f9fa">
+          <tr>
+            <th align="left">Part Number</th>
+            <th align="left">Description</th>
+            <th align="right">Qty Remaining</th>
+            <th align="left">Order Date</th>
+          </tr>
+        </thead>
+        <tbody>{bo_rows}</tbody>
+      </table>
+
+      <p style="margin-top:16px">Thank you,<br>Servitech Stock System</p>
+    </div>
+    """
+    return html
+
+def send_dispatch_email(engineer_email: str, dispatch_id: int) -> None:
+    """
+    Send an email listing items sent in this dispatch + current back orders.
+    Plain text body + HTML body for nicer clients.
+    """
+    dispatch = DispatchNote.query.get(dispatch_id)
+    if not dispatch:
+        return
+
+    sent_items = DispatchItem.query.filter_by(dispatch_note_id=dispatch_id).all()
+    back_orders = get_back_orders(engineer_email)
+
+    subject = f"Dispatch Note - {dispatch.date.strftime('%d %b %Y')}"
+    lines = []
+    lines.append("Hello,\n")
+    lines.append("Your dispatch has been processed.")
+    if dispatch.picker_name:
+        lines.append(f"Picker: {dispatch.picker_name}")
+    lines.append("")  # blank line
+
+    # Sent items
+    lines.append("Items Sent:")
+    if sent_items:
+        for s in sent_items:
+            lines.append(f"- {s.part_number} ({s.description or ''}): {s.quantity_sent}")
+    else:
+        lines.append("- (No items recorded on this dispatch)")
+
+    # Back orders
+    if back_orders:
+        lines.append("\nItems Still on Back Order:")
+        for bo in back_orders:
+            remaining = (bo.quantity or 0) - (bo.quantity_sent or 0)
+            if remaining > 0:
+                lines.append(f"- {bo.part_number} ({bo.description or ''}): {remaining}")
+
+    lines.append("\nThank you,\nServitech Stock System")
+
+    msg = Message(subject=subject, recipients=[engineer_email], body="\n".join(lines))
+    msg.html = build_html_email(sent_items, back_orders, dispatch)
+    mail.send(msg)
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+@app.route("/")
 def home():
-    return render_template('home.html')
+    return render_template("home.html")
+
+@app.route("/test_email")
+def test_email():
+    """Quick smoke-test for email config."""
+    msg = Message(
+        subject="Test Email from Stock System",
+        recipients=["tomward0606@gmail.com"],
+        body="This is a test email from the Servitech Stock system.",
+    )
+    mail.send(msg)
+    return "Test email sent!"
+
+@app.route("/admin/test_dummy_dispatch_email")
+def test_dummy_dispatch_email():
+    """
+    Send a DUMMY dispatch email (HTML + plain text) to tomward0606@gmail.com.
+    Does not touch the database.
+    """
+    # Dummy dispatch & items
+    dispatch = SimpleNamespace(
+        engineer_email="engineer@example.com",
+        picker_name="Test Picker",
+        date=datetime.utcnow(),
+    )
+
+    class DummySent(SimpleNamespace): ...
+    class DummyBO(SimpleNamespace): ...
+
+    sent_items = [
+        DummySent(part_number="PN123", description="Widget A", quantity_sent=3),
+        DummySent(part_number="PN456", description="Widget B", quantity_sent=1),
+    ]
+    # Simulate back orders with an .order having .date like the real model
+    order1 = SimpleNamespace(date=datetime(2025, 8, 10))
+    order2 = SimpleNamespace(date=datetime(2025, 8, 12))
+    back_orders = [
+        DummyBO(part_number="PN123", description="Widget A", quantity=5, quantity_sent=3, order=order2),
+        DummyBO(part_number="PN789", description="Widget C", quantity=5, quantity_sent=0, order=order1),
+    ]
+
+    # Plain-text body
+    text_lines = [
+        "Your dispatch has been processed.",
+        f"Picker: {dispatch.picker_name}",
+        "",
+        "Items Sent:",
+    ]
+    for s in sent_items:
+        text_lines.append(f"- {s.part_number} ({s.description}): {s.quantity_sent}")
+
+    text_lines.append("\nItems Still on Back Order:")
+    for bo in back_orders:
+        remaining = (bo.quantity or 0) - (bo.quantity_sent or 0)
+        if remaining > 0:
+            text_lines.append(
+                f"- {bo.part_number} ({bo.description}): {remaining} (Ordered {bo.order.date.strftime('%d %b %Y')})"
+            )
+
+    msg = Message(
+        subject=f"Dispatch Note - {dispatch.date.strftime('%d %b %Y')}",
+        recipients=["tomward0606@gmail.com"],
+        body="\n".join(text_lines),
+    )
+    msg.html = build_html_email(sent_items, back_orders, dispatch)
+    mail.send(msg)
+    return "Dummy dispatch email sent to tomward0606@gmail.com"
 
 @app.route('/admin/parts_orders_list')
 def parts_orders_list():
     from sqlalchemy import func
 
-    # Group by email, sum up outstanding quantities (quantity - quantity_sent)
-    outstanding_data = db.session.query(
-        PartsOrder.email,
-        func.sum(PartsOrderItem.quantity - PartsOrderItem.quantity_sent).label("outstanding_total")
-    ).join(PartsOrderItem).group_by(PartsOrder.email).having(
-        func.sum(PartsOrderItem.quantity - PartsOrderItem.quantity_sent) > 0
-    ).order_by(func.sum(PartsOrderItem.quantity - PartsOrderItem.quantity_sent).desc()).all()
+    outstanding_data = (
+        db.session.query(
+            PartsOrder.email,
+            func.coalesce(func.sum(PartsOrderItem.quantity - PartsOrderItem.quantity_sent), 0).label("outstanding_total")
+        )
+        .join(PartsOrderItem)
+        .group_by(PartsOrder.email)
+        .order_by(func.coalesce(func.sum(PartsOrderItem.quantity - PartsOrderItem.quantity_sent), 0).desc())
+        .all()
+    )
 
     return render_template('parts_orders_list.html', data=outstanding_data)
 
 
-@app.route('/admin/parts_order_detail/<email>', methods=['GET', 'POST'])
+@app.route("/admin/parts_order_detail/<email>", methods=["GET", "POST"])
 def parts_order_detail(email):
-    from sqlalchemy import func
+    """
+    Admin page to dispatch items for an engineer:
+    - Shows outstanding lines
+    - Records a DispatchNote with one or more DispatchItems
+    - Emails the engineer (sent + current back orders)
+    """
+    items = get_back_orders(email)
 
-    # Fetch all outstanding items for this engineer
-    items = db.session.query(PartsOrderItem).join(PartsOrder).filter(
-        PartsOrder.email == email,
-        PartsOrderItem.quantity > PartsOrderItem.quantity_sent
-    ).all()
+    # dispatch history (for the right-hand/under section)
+    engineer_dispatches = (
+        db.session.query(DispatchNote)
+        .filter(DispatchNote.engineer_email == email)
+        .order_by(DispatchNote.date.desc())
+        .all()
+    )
 
-    # Fetch dispatch history for this engineer (NEW)
-    engineer_dispatches = db.session.query(DispatchNote).filter(
-        DispatchNote.engineer_email == email
-    ).order_by(DispatchNote.date.desc()).all()
-
-    if request.method == 'POST':
-        # Get picker information from form
-        picker_name = request.form.get('picker_name', '').strip()
-        custom_picker_name = request.form.get('custom_picker_name', '').strip()
-        
-        # Use custom name if "other" was selected
-        if picker_name == 'other' and custom_picker_name:
+    if request.method == "POST":
+        # Picker name (from dropdown or custom)
+        picker_name = request.form.get("picker_name", "").strip()
+        custom_picker_name = request.form.get("custom_picker_name", "").strip()
+        if picker_name == "other" and custom_picker_name:
             final_picker_name = custom_picker_name
-        elif picker_name and picker_name != 'other':
+        elif picker_name and picker_name != "other":
             final_picker_name = picker_name
         else:
             flash("Please select or enter a picker name.", "error")
-            return render_template('parts_order_detail.html', email=email, items=items, engineer_dispatches=engineer_dispatches)
+            return render_template(
+                "parts_order_detail.html",
+                email=email,
+                items=items,
+                back_orders=items,
+                engineer_dispatches=engineer_dispatches,
+            )
 
-        # Create new dispatch note for the engineer
+        # Create a new dispatch note
         dispatch = DispatchNote(engineer_email=email, picker_name=final_picker_name)
         db.session.add(dispatch)
 
-        dispatch_created = False  # Track if any items were actually dispatched
+        dispatch_created = False
 
+        # Record any quantities to send
         for item in items:
-            send_key = f'send_{item.id}'
-            back_order_key = f'back_order_{item.id}'
-
+            send_key = f"send_{item.id}"
             to_send = int(request.form.get(send_key, 0) or 0)
-            if 0 < to_send <= (item.quantity - item.quantity_sent):
-                dispatch_item = DispatchItem(
-                    dispatch_note=dispatch,
-                    part_number=item.part_number,
-                    description=item.description,
-                    quantity_sent=to_send
+            if 0 < to_send <= item.qty_remaining:
+                db.session.add(
+                    DispatchItem(
+                        dispatch_note=dispatch,
+                        part_number=item.part_number,
+                        description=item.description,
+                        quantity_sent=to_send,
+                    )
                 )
-                db.session.add(dispatch_item)
-                item.quantity_sent += to_send
+                item.quantity_sent = (item.quantity_sent or 0) + to_send
                 dispatch_created = True
 
-            # Back order checkbox
-            item.back_order = back_order_key in request.form
+            # Optional manual back-order flag (doesn't change core logic)
+            item.back_order = f"back_order_{item.id}" in request.form
 
         if dispatch_created:
             db.session.commit()
             flash(f"Dispatch recorded successfully. Picked by: {final_picker_name}", "success")
+            send_dispatch_email(email, dispatch.id)  # auto-email
         else:
             db.session.rollback()
             flash("No items were dispatched. Please enter quantities to dispatch.", "warning")
-            
-        return redirect(url_for('parts_order_detail', email=email))
 
-    return render_template('parts_order_detail.html', email=email, items=items, engineer_dispatches=engineer_dispatches)
+        return redirect(url_for("parts_order_detail", email=email))
 
-@app.route('/admin/dispatched_orders')
+    # GET render
+    return render_template(
+        "parts_order_detail.html",
+        email=email,
+        items=items,
+        back_orders=items,
+        engineer_dispatches=engineer_dispatches,
+    )
+
+@app.route("/admin/dispatched_orders")
 def dispatched_orders():
+    """Chronological list of all dispatch notes."""
     dispatches = db.session.query(DispatchNote).order_by(DispatchNote.date.desc()).all()
-    return render_template('dispatched_orders.html', dispatches=dispatches)
+    return render_template("dispatched_orders.html", dispatches=dispatches)
+
+@app.route("/admin/dispatch_note/<int:dispatch_id>")
+def view_dispatch_note(dispatch_id: int):
+    """Dedicated view for a single dispatch note (if you want to render/print)."""
+    dispatch = DispatchNote.query.get_or_404(dispatch_id)
+    sent_items = DispatchItem.query.filter_by(dispatch_note_id=dispatch_id).all()
+    back_orders = get_back_orders(dispatch.engineer_email)
+    return render_template(
+        "dispatch_note.html",
+        dispatch=dispatch,
+        sent_items=sent_items,
+        back_orders=back_orders,
+    )
+
+@app.route('/admin/cancel_order_item/<int:item_id>', methods=['POST'])
+def cancel_order_item(item_id: int):
+    """
+    Instantly remove a PartsOrderItem from the order (regardless of qty_sent).
+    Does NOT affect past dispatch history.
+    If the parent order has no more items after removal, delete the order too.
+    """
+    item = PartsOrderItem.query.get_or_404(item_id)
+
+    # keep details before delete
+    engineer_email = item.order.email if item.order else request.form.get('email', '')
+    part_num = item.part_number
+    parent_order = item.order
+
+    db.session.delete(item)
+    db.session.flush()  # reflect relationship counts before commit
+
+    # If this was the last item, remove the empty parent order
+    if parent_order and len(parent_order.items) == 0:
+        db.session.delete(parent_order)
+
+    db.session.commit()
+    flash(f"Removed item {part_num} from the order.", "success")
+    return redirect(url_for('parts_order_detail', email=engineer_email))
 
 
-
-if __name__ == '__main__':
+# ──────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
