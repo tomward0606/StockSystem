@@ -1,8 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Servitech STOCK SYSTEM (Cleaned)
-# - Admin dispatch: record picks, auto-email engineer (sent + back orders)
-# - Admin views: outstanding list, order detail, dispatched history
-# - Test helpers: test email + dummy dispatch email
+# Servitech STOCK SYSTEM
 # ──────────────────────────────────────────────────────────────────────────────
 
 from datetime import datetime
@@ -424,3 +421,4 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
