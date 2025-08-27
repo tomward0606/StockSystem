@@ -92,14 +92,14 @@
               </tr>
             </thead>
             <tbody>
-              {% for item in items %}
-              {% set remaining = item.quantity - item.quantity_sent %}
+              {% for item in outstanding_items %}
+              {% set remaining = item.quantity - (item.quantity_sent or 0) %}
               <tr>
                 <td>{{ item.part_number }}</td>
                 <td>{{ item.description }}</td>
                 <td>{{ item.order.date.strftime('%Y-%m-%d') }}</td>
                 <td>{{ item.quantity }}</td>
-                <td>{{ item.quantity_sent }}</td>
+                <td>{{ item.quantity_sent or 0 }}</td>
                 <td>{{ remaining }}</td>
                 <td style="width:140px">
                   <input type="number"
@@ -157,7 +157,7 @@
         <h5 class="mb-0">Still on Back Order</h5>
       </div>
       <div class="card-body">
-        {% if items %}
+        {% if back_orders %}
           <table class="table table-sm table-bordered">
             <thead class="table-light">
               <tr>
@@ -168,8 +168,8 @@
               </tr>
             </thead>
             <tbody>
-              {% for item in items %}
-              {% set remaining = item.quantity - item.quantity_sent %}
+              {% for item in back_orders %}
+              {% set remaining = item.quantity - (item.quantity_sent or 0) %}
               {% if remaining > 0 %}
               <tr>
                 <td>{{ item.part_number }}</td>
@@ -228,8 +228,8 @@
             </table>
 
             <!-- Back Orders as of now (shown under each dispatch card, included in print) -->
-            <h6 class="mt-3">Still on Back Order (as of now)</h6>
-            {% if items %}
+            <h6 class="mt-3">Back Order Items</h6>
+            {% if back_orders %}
               <table class="table table-sm table-bordered">
                 <thead class="table-light">
                   <tr>
@@ -240,8 +240,8 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {% for bo in items %}
-                  {% set rem = bo.quantity - bo.quantity_sent %}
+                  {% for bo in back_orders %}
+                  {% set rem = bo.quantity - (bo.quantity_sent or 0) %}
                   {% if rem > 0 %}
                   <tr>
                     <td>{{ bo.part_number }}</td>
@@ -266,7 +266,7 @@
   </div>
 
   <!-- Hidden standalone cancel forms (one per line), outside the dispatch form -->
-  {% for item in items %}
+  {% for item in outstanding_items %}
   <form id="cancel-{{ item.id }}" method="POST" action="{{ url_for('cancel_order_item', item_id=item.id) }}">
     <input type="hidden" name="email" value="{{ email }}">
   </form>
