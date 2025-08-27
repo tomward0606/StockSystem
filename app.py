@@ -11,23 +11,35 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 from sqlalchemy import func
 
-# ── App & Config ──────────────────────────────────────────────────────────────
-app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "devkey")
+# ── App & Config (LOCAL HARD-CODED) ────────────────────────────────────────────
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail
 
-# DB: use env var if present, otherwise Render Postgres fallback
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
+app = Flask(__name__)
+
+# Keep a simple dev secret key locally
+app.config["SECRET_KEY"] = "devkey"
+
+# Database: hard-coded Render external URL (needs SSL)
+# NOTE: Render requires SSL for external connections → add '?sslmode=require'
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    "postgresql://servitech_db_user:"
+    "79U6KaAxlHdUfOeEt1iVDc65KXFLPie2"
+    "@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com"
+    "/servitech_db?sslmode=require"
+)
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# ── Mail (Gmail via App Password) ─────────────────────────────────────────────
+# Mail.    -- Switch back when done
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
 app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = os.environ["MAIL_USERNAME"]
-app.config["MAIL_PASSWORD"] = os.environ["MAIL_PASSWORD"]
+app.config["MAIL_USERNAME"] = "servitech.stock@gmail.com"          # <— change me!!!!
+app.config["MAIL_PASSWORD"] = "qmorqthzpbxqnkrp"  # <— change !!!!
 app.config["MAIL_DEFAULT_SENDER"] = (
-    os.environ.get("MAIL_DEFAULT_NAME", "Servitech Stock"),
-    os.environ.get("MAIL_DEFAULT_EMAIL", os.environ["MAIL_USERNAME"]),
+    "Servitech Stock",                             # display name
+    app.config["MAIL_USERNAME"],                   # email address
 )
 
 db = SQLAlchemy(app)
@@ -51,6 +63,7 @@ class PartsOrderItem(db.Model):
     quantity = db.Column(db.Integer)
     quantity_sent = db.Column(db.Integer, default=0)
     back_order = db.Column(db.Boolean, default=False)
+    back_order = db.Column(db.Boolean, nullable=False, default=False)
 
     @property
     def qty_remaining(self) -> int:
@@ -59,6 +72,17 @@ class PartsOrderItem(db.Model):
             return max(0, int(self.quantity or 0) - int(self.quantity_sent or 0))
         except Exception:
             return 0
+
+class HiddenPart(db.Model):
+    __tablename__ = "hidden_part"
+
+    part_number = db.Column(db.String, primary_key=True)   # matches CSV "Part Number"
+    reason      = db.Column(db.String, nullable=True)
+    created_at  = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_by  = db.Column(db.String, nullable=True)
+
+    def __repr__(self):
+        return f"<HiddenPart {self.part_number}>"
 
 class DispatchNote(db.Model):
     __tablename__ = "dispatch_note"
@@ -77,17 +101,35 @@ class DispatchItem(db.Model):
     description = db.Column(db.String(256))
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def get_back_orders(engineer_email: str):
-    """Return all outstanding items for this engineer (quantity > quantity_sent)."""
+
+def get_outstanding_items(engineer_email: str):
+    """All lines with remaining > 0, regardless of back_order flag."""
     return (
         db.session.query(PartsOrderItem)
-        .join(PartsOrder)
+        .join(PartsOrder, PartsOrder.id == PartsOrderItem.order_id)
         .filter(
             PartsOrder.email == engineer_email,
-            PartsOrderItem.quantity > PartsOrderItem.quantity_sent,
+            (PartsOrderItem.quantity - func.coalesce(PartsOrderItem.quantity_sent, 0)) > 0
         )
+        .order_by(PartsOrderItem.id.asc())
         .all()
     )
+
+
+def get_back_orders(engineer_email: str):
+    """Only items explicitly marked as back_order AND still remaining > 0."""
+    return (
+        db.session.query(PartsOrderItem)
+        .join(PartsOrder, PartsOrder.id == PartsOrderItem.order_id)
+        .filter(
+            PartsOrder.email == engineer_email,
+            PartsOrderItem.back_order.is_(True),
+            (PartsOrderItem.quantity - func.coalesce(PartsOrderItem.quantity_sent, 0)) > 0
+        )
+        .order_by(PartsOrderItem.id.asc())
+        .all()
+    )
+
 
 def build_html_email(sent_items, back_orders, dispatch, generated_at=None) -> str:
     """Build an HTML email body listing sent items and current back orders."""
@@ -286,17 +328,30 @@ def parts_orders_list():
     return render_template('parts_orders_list.html', data=outstanding_data)
 
 
+# helper: ALL outstanding items (remaining > 0), regardless of back_order
+def get_outstanding_items(email: str):
+    return (
+        db.session.query(PartsOrderItem)
+        .join(PartsOrder, PartsOrder.id == PartsOrderItem.order_id)
+        .filter(
+            PartsOrder.email == email,
+            (PartsOrderItem.quantity - db.func.coalesce(PartsOrderItem.quantity_sent, 0)) > 0
+        )
+        .order_by(PartsOrderItem.id.asc())
+        .all()
+    )
+
 @app.route("/admin/parts_order_detail/<email>", methods=["GET", "POST"])
 def parts_order_detail(email):
     """
     Admin page to dispatch items for an engineer:
-    - Shows outstanding lines
+    - Shows outstanding lines (remaining > 0)
     - Records a DispatchNote with one or more DispatchItems
-    - Emails the engineer (sent + current back orders)
+    - Emails the engineer (sent + current back orders = explicit flags only)
     """
-    items = get_back_orders(email)
+    outstanding_items = get_outstanding_items(email)   # all remaining > 0
+    back_orders = get_back_orders(email)               # strict: flag==True & remaining>0
 
-    # dispatch history (for the right-hand/under section)
     engineer_dispatches = (
         db.session.query(DispatchNote)
         .filter(DispatchNote.engineer_email == email)
@@ -305,7 +360,6 @@ def parts_order_detail(email):
     )
 
     if request.method == "POST":
-        # Picker name (from dropdown or custom)
         picker_name = request.form.get("picker_name", "").strip()
         custom_picker_name = request.form.get("custom_picker_name", "").strip()
         if picker_name == "other" and custom_picker_name:
@@ -317,54 +371,62 @@ def parts_order_detail(email):
             return render_template(
                 "parts_order_detail.html",
                 email=email,
-                items=items,
-                back_orders=items,
+                outstanding_items=outstanding_items,
+                back_orders=back_orders,
                 engineer_dispatches=engineer_dispatches,
             )
 
-        # Create a new dispatch note
-        dispatch = DispatchNote(engineer_email=email, picker_name=final_picker_name)
-        db.session.add(dispatch)
-
+        dispatch = None
         dispatch_created = False
+        flags_changed = False
 
-        # Record any quantities to send
-        for item in items:
-            send_key = f"send_{item.id}"
-            to_send = int(request.form.get(send_key, 0) or 0)
-            if 0 < to_send <= item.qty_remaining:
-                db.session.add(
-                    DispatchItem(
-                        dispatch_note=dispatch,
-                        part_number=item.part_number,
-                        description=item.description,
-                        quantity_sent=to_send,
-                    )
-                )
+        for item in outstanding_items:
+            to_send = int(request.form.get(f"send_{item.id}", 0) or 0)
+            max_send = getattr(item, "qty_remaining", item.quantity - (item.quantity_sent or 0))
+
+            if 0 < to_send <= max_send:
+                if dispatch is None:
+                    dispatch = DispatchNote(engineer_email=email, picker_name=final_picker_name)
+                    db.session.add(dispatch)
+
+                db.session.add(DispatchItem(
+                    dispatch_note=dispatch,
+                    part_number=item.part_number,
+                    description=item.description,
+                    quantity_sent=to_send,
+                ))
                 item.quantity_sent = (item.quantity_sent or 0) + to_send
                 dispatch_created = True
 
-            # Optional manual back-order flag (doesn't change core logic)
-            item.back_order = f"back_order_{item.id}" in request.form
+            desired_flag = (request.form.get(f"back_order_{item.id}") == "on")
+            if getattr(item, "back_order", False) != desired_flag:
+                item.back_order = desired_flag
+                flags_changed = True
+
+            db.session.add(item)
 
         if dispatch_created:
             db.session.commit()
             flash(f"Dispatch recorded successfully. Picked by: {final_picker_name}", "success")
-            send_dispatch_email(email, dispatch.id)  # auto-email
+            send_dispatch_email(email, dispatch.id)
+        elif flags_changed:
+            db.session.commit()
+            flash("Back order flags updated.", "info")
         else:
             db.session.rollback()
-            flash("No items were dispatched. Please enter quantities to dispatch.", "warning")
+            flash("No items were dispatched and no changes were made.", "warning")
 
         return redirect(url_for("parts_order_detail", email=email))
 
-    # GET render
     return render_template(
         "parts_order_detail.html",
         email=email,
-        items=items,
-        back_orders=items,
+        outstanding_items=outstanding_items,
+        back_orders=back_orders,
         engineer_dispatches=engineer_dispatches,
     )
+
+
 
 @app.route("/admin/dispatched_orders")
 def dispatched_orders():
@@ -409,6 +471,55 @@ def cancel_order_item(item_id: int):
     db.session.commit()
     flash(f"Removed item {part_num} from the order.", "success")
     return redirect(url_for('parts_order_detail', email=engineer_email))
+
+# ── Catalogue Manager (Hide / Unhide parts) ───────────────────────────────────
+@app.route("/admin/hidden-parts", methods=["GET", "POST"])
+def hidden_parts():
+    """
+    List hidden parts and allow admins to hide new part numbers.
+    Uses the HiddenPart table (case-insensitive by uppercasing keys).
+    """
+    if request.method == "POST":
+        pn = (request.form.get("part_number") or "").strip().upper()
+        reason = (request.form.get("reason") or "").strip()
+        created_by = (request.form.get("created_by") or "").strip()
+
+        if not pn:
+            flash("Please enter a part number.", "warning")
+            return redirect(url_for("hidden_parts"))
+
+        # Avoid duplicates
+        existing = HiddenPart.query.get(pn)
+        if existing:
+            flash(f"{pn} is already hidden.", "info")
+        else:
+            db.session.add(HiddenPart(part_number=pn, reason=reason, created_by=created_by))
+            db.session.commit()
+            flash(f"Hidden: {pn}", "success")
+
+        return redirect(url_for("hidden_parts"))
+
+    rows = HiddenPart.query.order_by(HiddenPart.created_at.desc()).all()
+    return render_template("hidden_parts.html", rows=rows)
+
+
+
+@app.route("/admin/hidden-parts/unhide", methods=["POST"])
+@app.route("/admin/hidden-parts/unhide/<path:part_number>", methods=["POST"])
+def unhide_part(part_number=None):
+    pn = (part_number or request.form.get("part_number") or "").strip().upper()
+    if not pn:
+        flash("No part number provided.", "warning")
+        return redirect(url_for("hidden_parts"))
+
+    row = HiddenPart.query.get(pn)
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+        flash(f"Unhidden: {pn}", "success")
+    else:
+        flash(f"{pn} wasn’t hidden.", "info")
+    return redirect(url_for("hidden_parts"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
