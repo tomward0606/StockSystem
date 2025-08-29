@@ -7,10 +7,11 @@ from datetime import datetime
 import os
 import csv
 import io
+import base64
 from types import SimpleNamespace
 
 # ── Flask & Extensions ────────────────────────────────────────────────────────
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 from sqlalchemy import func
@@ -45,6 +46,11 @@ app.config["MAIL_DEFAULT_SENDER"] = (
 # Initialize extensions
 db = SQLAlchemy(app)
 mail = Mail(app)
+
+# ── GitHub Configuration ──────────────────────────────────────────────────────
+GITHUB_TOKEN = "your_github_token_here"  # Replace with actual token
+GITHUB_REPO = "tomward0606/PartsProjectMain"
+CSV_FILE_PATH = "parts.csv"
 
 # ── Database Models ───────────────────────────────────────────────────────────
 
@@ -102,30 +108,6 @@ class DispatchItem(db.Model):
     description = db.Column(db.String(256))
 
 
-class Part(db.Model):
-    """Parts catalogue - synced with GitHub CSV"""
-    __tablename__ = "part"
-    
-    product_code = db.Column(db.String(64), primary_key=True)
-    description = db.Column(db.String(256), nullable=True)
-    category = db.Column(db.String(128), nullable=True)
-    make = db.Column(db.String(128), nullable=True)
-    manufacturer = db.Column(db.String(128), nullable=True)
-    image = db.Column(db.String(128), nullable=True)
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def to_dict(self):
-        """Convert part to dictionary for JSON responses"""
-        return {
-            'product_code': self.product_code,
-            'description': self.description or '',
-            'category': self.category or '',
-            'make': self.make or '',
-            'manufacturer': self.manufacturer or '',
-            'image': self.image or ''
-        }
-
-
 class HiddenPart(db.Model):
     """Legacy table for hidden parts - kept for backward compatibility"""
     __tablename__ = "hidden_part"
@@ -168,11 +150,11 @@ def get_back_orders(engineer_email: str):
         .all()
     )
 
-# ── CSV Integration Functions ─────────────────────────────────────────────────
+# ── GitHub CSV Functions ──────────────────────────────────────────────────────
 
 def fetch_csv_from_github():
-    """Fetch the latest CSV from GitHub repository"""
-    github_url = "https://raw.githubusercontent.com/tomward0606/PartsProjectMain/main/parts.csv"
+    """Fetch CSV content directly from GitHub repository"""
+    github_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{CSV_FILE_PATH}"
     try:
         response = requests.get(github_url, timeout=10)
         response.raise_for_status()
@@ -181,67 +163,102 @@ def fetch_csv_from_github():
         print(f"Error fetching CSV from GitHub: {e}")
         return None
 
-
-def sync_parts_from_csv():
-    """Load parts from GitHub CSV into database"""
-    csv_content = fetch_csv_from_github()
+def parse_csv_content(csv_content):
+    """Parse CSV content into list of part dictionaries"""
     if not csv_content:
-        return False, "Could not fetch CSV from GitHub"
+        return []
     
     try:
-        # Clear existing parts
-        db.session.query(Part).delete()
+        reader = csv.DictReader(io.StringIO(csv_content))
+        parts = []
+        for row in reader:
+            # Clean up the data and handle different column name variations
+            part = {
+                'product_code': (row.get('Product Code') or row.get('product_code', '')).strip(),
+                'description': (row.get('Description') or row.get('description', '')).strip(),
+                'category': (row.get('Category') or row.get('category', '')).strip(),
+                'make': (row.get('Make') or row.get('make', '')).strip(),
+                'manufacturer': (row.get('Manufacturer') or row.get('manufacturer', '')).strip(),
+                'image': (row.get('image') or row.get('Image', '')).strip()
+            }
+            if part['product_code']:  # Only include rows with product codes
+                parts.append(part)
         
-        # Parse CSV - handle different possible headers
-        csv_reader = csv.DictReader(io.StringIO(csv_content))
-        parts_added = 0
+        return parts
+    except Exception as e:
+        print(f"Error parsing CSV: {e}")
+        return []
+
+def get_github_file_info():
+    """Get file content and SHA from GitHub API (needed for updates)"""
+    if GITHUB_TOKEN == "your_github_token_here":
+        return None, None  # Token not configured
+    
+    try:
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CSV_FILE_PATH}"
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
         
-        for row in csv_reader:
-            # Handle both 'Product Code' and 'product_code' variations
-            product_code = (row.get('Product Code') or row.get('product_code', '')).strip()
-            if not product_code:
-                continue
-                
-            part = Part(
-                product_code=product_code,
-                description=(row.get('Description') or row.get('description', '')).strip() or None,
-                category=(row.get('Category') or row.get('category', '')).strip() or None,
-                make=(row.get('Make') or row.get('make', '')).strip() or None,
-                manufacturer=(row.get('Manufacturer') or row.get('manufacturer', '')).strip() or None,
-                image=(row.get('image') or row.get('Image', '')).strip() or None
-            )
-            
-            db.session.add(part)
-            parts_added += 1
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status()
         
-        db.session.commit()
-        return True, f"Successfully synced {parts_added} parts from GitHub CSV"
+        file_data = response.json()
+        content = base64.b64decode(file_data['content']).decode('utf-8')
+        sha = file_data['sha']
+        
+        return content, sha
+    except Exception as e:
+        print(f"Error getting GitHub file info: {e}")
+        return None, None
+
+def update_github_csv(parts_list, sha, commit_message):
+    """Update CSV file in GitHub repository"""
+    if GITHUB_TOKEN == "your_github_token_here":
+        return False, "GitHub token not configured"
+    
+    try:
+        # Convert parts list to CSV format
+        output = io.StringIO()
+        fieldnames = ['Product Code', 'Description', 'Category', 'Make', 'Manufacturer', 'image']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        
+        writer.writeheader()
+        for part in parts_list:
+            writer.writerow({
+                'Product Code': part.get('product_code', ''),
+                'Description': part.get('description', ''),
+                'Category': part.get('category', ''),
+                'Make': part.get('make', ''),
+                'Manufacturer': part.get('manufacturer', ''),
+                'image': part.get('image', '')
+            })
+        
+        csv_content = output.getvalue()
+        
+        # Update in GitHub
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CSV_FILE_PATH}"
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        encoded_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
+        
+        data = {
+            'message': commit_message,
+            'content': encoded_content,
+            'sha': sha
+        }
+        
+        response = requests.put(api_url, json=data, headers=headers)
+        response.raise_for_status()
+        
+        return True, "Successfully updated GitHub repository"
         
     except Exception as e:
-        db.session.rollback()
-        return False, f"Error syncing CSV: {str(e)}"
-
-
-def export_parts_to_csv_format():
-    """Export current parts to CSV format matching GitHub structure"""
-    parts = Part.query.order_by(Part.product_code).all()
-    
-    output = io.StringIO()
-    fieldnames = ['Product Code', 'Description', 'Category', 'Make', 'Manufacturer', 'image']
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
-    
-    writer.writeheader()
-    for part in parts:
-        writer.writerow({
-            'Product Code': part.product_code,
-            'Description': part.description or '',
-            'Category': part.category or '',
-            'Make': part.make or '',
-            'Manufacturer': part.manufacturer or '',
-            'image': part.image or ''
-        })
-    
-    return output.getvalue()
+        return False, f"Failed to update GitHub: {str(e)}"
 
 # ── Email Functions ───────────────────────────────────────────────────────────
 
@@ -521,138 +538,290 @@ def view_dispatch_note(dispatch_id: int):
         back_orders=back_orders,
     )
 
-# ── Catalogue Management Routes ───────────────────────────────────────────────
+# ── GitHub Direct Catalogue Management Routes ────────────────────────────────
 
 @app.route("/admin/catalogue")
 def catalogue_manager():
-    """Main catalogue management page with search and filtering"""
-    search_query = request.args.get('search', '').strip()
-    category_filter = request.args.get('category', '').strip()
-    
-    # Build query with filters
-    query = Part.query
-    
-    if search_query:
-        search_pattern = f"%{search_query}%"
-        query = query.filter(
-            db.or_(
-                Part.product_code.ilike(search_pattern),
-                Part.description.ilike(search_pattern),
-                Part.make.ilike(search_pattern),
-                Part.manufacturer.ilike(search_pattern)
-            )
-        )
-    
-    if category_filter:
-        query = query.filter(Part.category.ilike(f"%{category_filter}%"))
-    
-    parts = query.order_by(Part.product_code).all()
-    
-    # Get categories for filter dropdown
-    categories = db.session.query(Part.category).filter(Part.category.isnot(None)).distinct().order_by(Part.category).all()
-    categories = [cat[0] for cat in categories if cat[0]]
-    
-    return render_template("catalogue_manager.html", 
-                         parts=parts, 
-                         categories=categories,
-                         search_query=search_query,
-                         category_filter=category_filter)
-
-
-@app.route("/admin/catalogue/sync", methods=["POST"])
-def sync_catalogue():
-    """Sync parts from GitHub CSV"""
-    success, message = sync_parts_from_csv()
-    if success:
-        flash(message, "success")
-    else:
-        flash(message, "error")
-    return redirect(url_for('catalogue_manager'))
-
-
-@app.route("/admin/catalogue/export")
-def export_catalogue():
-    """Export current catalogue as downloadable CSV"""
-    csv_data = export_parts_to_csv_format()
-    
-    return Response(
-        csv_data,
-        mimetype='text/csv',
-        headers={'Content-Disposition': 'attachment; filename=parts_catalogue_export.csv'}
-    )
-
+    """Catalogue manager working directly with GitHub CSV - no database"""
+    try:
+        # Get search/filter parameters
+        search_query = request.args.get('search', '').strip()
+        category_filter = request.args.get('category', '').strip()
+        
+        # Fetch CSV from GitHub (public URL, no token needed for reading)
+        csv_content = fetch_csv_from_github()
+        if csv_content is None:
+            flash("Could not load CSV from GitHub. Check your connection.", "error")
+            return render_template("catalogue_manager.html", parts=[], categories=[], 
+                                 search_query=search_query, category_filter=category_filter)
+        
+        # Parse CSV into parts list
+        all_parts = parse_csv_content(csv_content)
+        
+        # Apply search filter
+        parts = all_parts
+        if search_query:
+            search_lower = search_query.lower()
+            parts = [p for p in parts if (
+                search_lower in p['product_code'].lower() or
+                search_lower in p.get('description', '').lower() or
+                search_lower in p.get('make', '').lower() or
+                search_lower in p.get('manufacturer', '').lower()
+            )]
+        
+        # Apply category filter
+        if category_filter:
+            parts = [p for p in parts if category_filter.lower() in p.get('category', '').lower()]
+        
+        # Get unique categories for filter dropdown
+        categories = list(set(p.get('category', '') for p in all_parts if p.get('category', '')))
+        categories.sort()
+        
+        return render_template("catalogue_manager.html", 
+                             parts=parts, 
+                             categories=categories,
+                             search_query=search_query,
+                             category_filter=category_filter)
+                             
+    except Exception as e:
+        flash(f"Error loading catalogue: {str(e)}", "error")
+        return render_template("catalogue_manager.html", parts=[], categories=[], 
+                             search_query="", category_filter="")
 
 @app.route("/admin/catalogue/part", methods=["POST"])
 def add_part():
-    """Add a new part to the catalogue"""
-    product_code = request.form.get('product_code', '').strip()
-    
-    if not product_code:
-        flash("Product code is required", "error")
-        return redirect(url_for('catalogue_manager'))
-    
-    # Check for duplicates
-    existing = Part.query.get(product_code)
-    if existing:
-        flash(f"Part {product_code} already exists", "error")
-        return redirect(url_for('catalogue_manager'))
-    
-    part = Part(
-        product_code=product_code,
-        description=request.form.get('description', '').strip() or None,
-        category=request.form.get('category', '').strip() or None,
-        make=request.form.get('make', '').strip() or None,
-        manufacturer=request.form.get('manufacturer', '').strip() or None,
-        image=request.form.get('image', '').strip() or None
-    )
-    
+    """Add a new part directly to GitHub CSV"""
     try:
-        db.session.add(part)
-        db.session.commit()
-        flash(f"Successfully added part: {product_code}", "success")
+        product_code = request.form.get('product_code', '').strip()
+        if not product_code:
+            flash("Product code is required", "error")
+            return redirect(url_for('catalogue_manager'))
+        
+        # Get current CSV from GitHub API (with SHA for updating)
+        csv_content, sha = get_github_file_info()
+        if csv_content is None:
+            flash("Could not access GitHub API. Check your token configuration.", "error")
+            return redirect(url_for('catalogue_manager'))
+        
+        # Parse existing parts
+        parts = parse_csv_content(csv_content)
+        
+        # Check if part already exists
+        if any(p['product_code'] == product_code for p in parts):
+            flash(f"Part {product_code} already exists", "error")
+            return redirect(url_for('catalogue_manager'))
+        
+        # Add new part
+        new_part = {
+            'product_code': product_code,
+            'description': request.form.get('description', '').strip(),
+            'category': request.form.get('category', '').strip(),
+            'make': request.form.get('make', '').strip(),
+            'manufacturer': request.form.get('manufacturer', '').strip(),
+            'image': request.form.get('image', '').strip()
+        }
+        parts.append(new_part)
+        
+        # Sort by product code
+        parts.sort(key=lambda x: x['product_code'])
+        
+        # Update GitHub
+        success, message = update_github_csv(parts, sha, f"Add new part: {product_code}")
+        
+        if success:
+            flash(f"Successfully added part: {product_code}", "success")
+        else:
+            flash(f"Failed to add part: {message}", "error")
+            
     except Exception as e:
-        db.session.rollback()
         flash(f"Error adding part: {str(e)}", "error")
     
     return redirect(url_for('catalogue_manager'))
 
-
 @app.route("/admin/catalogue/part/<product_code>", methods=["PUT", "DELETE"])
 def update_or_delete_part(product_code):
-    """AJAX endpoint for updating or deleting parts"""
-    part = Part.query.get_or_404(product_code)
-    
-    if request.method == "DELETE":
-        try:
-            db.session.delete(part)
-            db.session.commit()
-            return jsonify({"success": True, "message": f"Successfully deleted part {product_code}"})
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": f"Error deleting part: {str(e)}"})
-    
-    elif request.method == "PUT":
-        try:
+    """Update or delete a part directly in GitHub CSV"""
+    try:
+        # Get current CSV from GitHub API
+        csv_content, sha = get_github_file_info()
+        if csv_content is None:
+            return jsonify({"success": False, "message": "Could not access GitHub API"})
+        
+        # Parse existing parts
+        parts = parse_csv_content(csv_content)
+        
+        # Find the part to update/delete
+        part_index = None
+        for i, part in enumerate(parts):
+            if part['product_code'] == product_code:
+                part_index = i
+                break
+        
+        if part_index is None:
+            return jsonify({"success": False, "message": "Part not found"})
+        
+        if request.method == "DELETE":
+            # Remove the part
+            parts.pop(part_index)
+            commit_message = f"Delete part: {product_code}"
+            
+        elif request.method == "PUT":
+            # Update the part
             data = request.get_json()
+            part = parts[part_index]
             
-            # Update fields
             if 'description' in data:
-                part.description = data['description'].strip() or None
+                part['description'] = data['description'].strip()
             if 'category' in data:
-                part.category = data['category'].strip() or None
+                part['category'] = data['category'].strip()
             if 'make' in data:
-                part.make = data['make'].strip() or None
+                part['make'] = data['make'].strip()
             if 'manufacturer' in data:
-                part.manufacturer = data['manufacturer'].strip() or None
+                part['manufacturer'] = data['manufacturer'].strip()
             if 'image' in data:
-                part.image = data['image'].strip() or None
+                part['image'] = data['image'].strip()
             
-            db.session.commit()
-            return jsonify({"success": True, "message": f"Successfully updated part {product_code}"})
+            commit_message = f"Update part: {product_code}"
+        
+        # Update GitHub
+        success, message = update_github_csv(parts, sha, commit_message)
+        
+        return jsonify({"success": success, "message": message})
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
+
+@app.route("/admin/catalogue/export")
+def export_catalogue():
+    """Export current CSV from GitHub"""
+    try:
+        csv_content = fetch_csv_from_github()
+        if csv_content is None:
+            flash("Could not access GitHub CSV", "error")
+            return redirect(url_for('catalogue_manager'))
+        
+        return Response(
+            csv_content,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=parts_catalogue.csv'}
+        )
+        
+    except Exception as e:
+        flash(f"Export failed: {str(e)}", "error")
+        return redirect(url_for('catalogue_manager'))
+
+@app.route("/admin/catalogue/test_github")
+def test_github_connection():
+    """Test GitHub connection and show configuration status"""
+    try:
+        # Test public CSV access
+        csv_content = fetch_csv_from_github()
+        if csv_content:
+            lines = csv_content.split('\n')[:5]
+            parts_count = len(parse_csv_content(csv_content))
             
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": f"Error updating part: {str(e)}"})
+            # Test API access (if token is configured)
+            api_status = "Not configured"
+            if GITHUB_TOKEN != "your_github_token_here":
+                api_content, sha = get_github_file_info()
+                if api_content and sha:
+                    api_status = f"✅ Connected (SHA: {sha[:8]}...)"
+                else:
+                    api_status = "❌ Token invalid or no access"
+            
+            return f"""
+            <div style="font-family: system-ui; padding: 40px; max-width: 700px; margin: 0 auto;">
+                <h2 style="color: #28a745;">✅ GitHub CSV Access Successful!</h2>
+                
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h4>Connection Status:</h4>
+                    <ul>
+                        <li><strong>Repository:</strong> {GITHUB_REPO}</li>
+                        <li><strong>File:</strong> {CSV_FILE_PATH}</li>
+                        <li><strong>Parts found:</strong> {parts_count}</li>
+                        <li><strong>Public access:</strong> ✅ Working</li>
+                        <li><strong>API access:</strong> {api_status}</li>
+                    </ul>
+                </div>
+                
+                <h4>First 5 lines of CSV:</h4>
+                <pre style="background: #f8f9fa; padding: 15px; border-radius: 8px; overflow-x: auto;">{'<br>'.join(lines)}</pre>
+                
+                <div style="background: {'#d4edda' if GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <h5>{'✅ Ready for Editing' if GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Read-Only Mode'}</h5>
+                    <p>{'You can add, edit, and delete parts.' if GITHUB_TOKEN != 'your_github_token_here' else 'You can view parts but need to configure a GitHub token to edit.'}</p>
+                    {'<p><a href="/admin/catalogue/setup">→ Configure GitHub Token</a></p>' if GITHUB_TOKEN == 'your_github_token_here' else ''}
+                </div>
+                
+                <p><a href="/admin/catalogue">→ Go to Catalogue Manager</a></p>
+                <p><a href="/">← Back to Home</a></p>
+            </div>
+            """
+        else:
+            return """
+            <div style="font-family: system-ui; padding: 40px; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc3545;">❌ GitHub Connection Failed</h2>
+                <p>Could not access the CSV file. Check:</p>
+                <ul>
+                    <li>Repository name: <code>tomward0606/PartsProjectMain</code></li>
+                    <li>File path: <code>parts.csv</code></li>
+                    <li>File exists and is public</li>
+                    <li>Internet connection</li>
+                </ul>
+                <p><a href="/">← Back to Home</a></p>
+            </div>
+            """
+    except Exception as e:
+        return f"""
+        <div style="font-family: system-ui; padding: 40px; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #dc3545;">❌ Connection Error</h2>
+            <p><strong>Error:</strong> {str(e)}</p>
+            <p><a href="/">← Back to Home</a></p>
+        </div>
+        """
+
+@app.route("/admin/catalogue/setup")
+def catalogue_setup():
+    """Instructions for setting up GitHub integration"""
+    return f"""
+    <div style="font-family: system-ui; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6;">
+        <h1 style="color: #0d6efd;">🔧 GitHub Catalogue Setup</h1>
+        
+        <div style="background: {'#d4edda' if GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; border: 1px solid {'#c3e6cb' if GITHUB_TOKEN != 'your_github_token_here' else '#ffc107'}; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3>{'✅ Token Configured' if GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Setup Required'}</h3>
+            <p>{'Your GitHub token is configured and you can edit parts.' if GITHUB_TOKEN != 'your_github_token_here' else 'To edit your GitHub CSV directly, you need a GitHub Personal Access Token.'}</p>
+        </div>
+        
+        <h3>How It Works:</h3>
+        <ul>
+            <li><strong>Read Access:</strong> Anyone can view your parts (uses public GitHub URL)</li>
+            <li><strong>Write Access:</strong> Requires GitHub Personal Access Token to commit changes</li>
+        </ul>
+        
+        <h3>Setup GitHub Token (for editing):</h3>
+        <ol>
+            <li>Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal Access Tokens</a></li>
+            <li>Click "Generate new token (classic)"</li>
+            <li>Give it a name like "Stock System Catalogue"</li>
+            <li>Select scopes: <code>repo</code> (full repository access)</li>
+            <li>Copy your token (starts with <code>ghp_</code>)</li>
+            <li>In your <code>app.py</code>, replace:<br>
+                <code>GITHUB_TOKEN = "your_github_token_here"</code><br>
+                with your actual token</li>
+        </ol>
+        
+        <h3>Current Configuration:</h3>
+        <ul>
+            <li><strong>Repository:</strong> {GITHUB_REPO}</li>
+            <li><strong>File:</strong> {CSV_FILE_PATH}</li>
+            <li><strong>Token Status:</strong> {'✅ Configured' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Not configured'}</li>
+            <li><strong>Read Access:</strong> ✅ Available (public)</li>
+            <li><strong>Write Access:</strong> {'✅ Available' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Requires token'}</li>
+        </ul>
+        
+        <p><a href="/admin/catalogue/test_github">→ Test Connection</a> | <a href="/admin/catalogue">→ Open Catalogue</a> | <a href="/">← Home</a></p>
+    </div>
+    """
 
 # ── Development & Testing Routes ──────────────────────────────────────────────
 
@@ -710,17 +879,6 @@ def test_dummy_dispatch_email():
     mail.send(msg)
     return "Dummy dispatch email sent to tomward0606@gmail.com"
 
-
-@app.route("/admin/catalogue/test_github")
-def test_github_connection():
-    """Test GitHub CSV connection"""
-    csv_content = fetch_csv_from_github()
-    if csv_content:
-        lines = csv_content.split('\n')[:5]  # Show first 5 lines
-        return f"<pre>GitHub CSV accessible!\n\nFirst 5 lines:\n{chr(10).join(lines)}</pre>"
-    else:
-        return "<pre>Error: Could not access GitHub CSV</pre>"
-
 # ── Legacy Routes (Backward Compatibility) ────────────────────────────────────
 
 @app.route("/admin/hidden-parts")
@@ -749,10 +907,14 @@ if __name__ == "__main__":
         print("  • /                           - Main dashboard")
         print("  • /admin/parts_orders_list    - Outstanding orders summary")
         print("  • /admin/dispatched_orders    - Dispatch history")
-        print("  • /admin/catalogue            - Parts catalogue manager")
+        print("  • /admin/catalogue            - Parts catalogue manager (GitHub CSV)")
+        print("  • /admin/catalogue/setup      - GitHub integration setup")
         print("  • /admin/catalogue/test_github - Test GitHub CSV connection")
         print("  • /test_email                 - Test email configuration")
+        print("\nGitHub CSV Configuration:")
+        print(f"  • Repository: {GITHUB_REPO}")
+        print(f"  • File: {CSV_FILE_PATH}")
+        print(f"  • Token: {'✅ Configured' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Not configured'}")
         
     app.run(debug=True)
-
 
