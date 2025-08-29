@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Catalogue Manager - Servitech Stock System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-light: #f8f9fa;
+      --border-light: #e5e7eb;
+      --header-gray: #6c757d;
+      --edit-bg: #fff3cd;
+      --edit-border: #ffc107;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+    }
+    
+    .main-card {
+      background: white;
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+      padding: 24px;
+    }
+    
+    .hero {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 18px;
+      background: #f1f5f9;
+      margin-bottom: 20px;
+    }
+    
+    .hero-logo { 
+      height: 42px; 
+      width: auto; 
+      border-radius: 8px; 
+    }
+    
+    .section-card {
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    
+    .section-header {
+      background: white;
+      color: var(--header-gray);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-light);
+    }
+    
+    .editable-cell {
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    
+    .editable-cell:hover {
+      background-color: #f8f9fa;
+    }
+    
+    .editing {
+      background-color: var(--edit-bg) !important;
+      border: 2px solid var(--edit-border);
+      border-radius: 4px;
+    }
+    
+    .edit-input {
+      border: none;
+      background: transparent;
+      width: 100%;
+      font: inherit;
+      padding: 4px;
+      outline: none;
+    }
+    
+    .filter-section {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    
+    .sync-status {
+      display: none;
+    }
+    
+    .sync-status.show {
+      display: block;
+    }
+    
+    .add-part-form {
+      background: #f0f9ff;
+      border: 1px solid #0ea5e9;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    
+    @media (max-width: 768px) {
+      .main-card { 
+        padding: 16px; 
+        margin: 8px;
+      }
+      .hero { 
+        padding: 12px 14px; 
+      }
+      .table-responsive {
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+
+<body class="py-3">
+  <div class="container">
+    <div class="main-card">
+      
+      <!-- Hero Section -->
+      <div class="hero d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="Servitech logo" class="hero-logo">
+          <div>
+            <h2 class="h4 mb-1">Parts Catalogue Manager</h2>
+            <p class="mb-0 text-muted">Manage your complete parts inventory with inline editing</p>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="{{ url_for('parts_orders_list') }}">Back to Admin</a>
+        </div>
+      </div>
+
+      <!-- Sync Section -->
+      <div class="section-card">
+        <div class="card-header section-header">
+          <div class="d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-cloud-download me-2"></i>GitHub CSV Sync</span>
+            <small class="text-muted">Last synced: {{ moment().format() if parts else 'Never' }}</small>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-md-8">
+              <p class="mb-2">Sync with <code>tomward0606/PartsProjectMain/parts.csv</code></p>
+              <small class="text-muted">This will overwrite local changes with the latest GitHub data.</small>
+            </div>
+            <div class="col-md-4 text-end">
+              <form method="post" action="{{ url_for('sync_catalogue') }}" class="d-inline">
+                <button type="submit" class="btn btn-primary" onclick="return confirm('This will overwrite local changes. Continue?')">
+                  <i class="bi bi-arrow-repeat me-1"></i> Sync from GitHub
+                </button>
+              </form>
+              <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary ms-2">
+                <i class="bi bi-download me-1"></i> Export CSV
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add New Part Section -->
+      <div class="section-card">
+        <div class="card-header section-header">
+          <i class="bi bi-plus-circle me-2"></i>Add New Part
+        </div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('add_part') }}" class="add-part-form">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Product Code *</label>
+                <input name="product_code" class="form-control" placeholder="e.g. 2KE/HYC/001" required>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label">Description</label>
+                <input name="description" class="form-control" placeholder="e.g. ISOLATION KIT M32-M20 POLYPROP">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Category</label>
+                <input name="category" class="form-control" placeholder="e.g. Ultrasonics">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Make</label>
+                <input name="make" class="form-control" placeholder="e.g. Hycontrol">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Manufacturer</label>
+                <input name="manufacturer" class="form-control" placeholder="e.g. Hycontrol Limited">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Image</label>
+                <input name="image" class="form-control" placeholder="e.g. 2KEHYC001.png">
+              </div>
+              <div class="col-12 text-end">
+                <button type="submit" class="btn btn-success">
+                  <i class="bi bi-plus me-1"></i> Add Part
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Filters Section -->
+      <div class="filter-section">
+        <form method="get" class="row g-3 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label small">Search Parts</label>
+            <input name="search" class="form-control form-control-sm" 
+                   placeholder="Search code, description, make..." 
+                   value="{{ search_query }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">Category</label>
+            <select name="category" class="form-select form-select-sm">
+              <option value="">All Categories</option>
+              {% for cat in categories %}
+              <option value="{{ cat }}" {% if cat == category_filter %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <button type="submit" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-search me-1"></i> Filter
+            </button>
+            <a href="{{ url_for('catalogue_manager') }}" class="btn btn-outline-secondary btn-sm ms-1">
+              <i class="bi bi-x-circle me-1"></i> Clear
+            </a>
+          </div>
+          <div class="col-md-2 text-end">
+            <span class="badge bg-light text-dark">{{ parts|length }} parts</span>
+          </div>
+        </form>
+      </div>
+
+      <!-- Parts Table -->
+      <div class="section-card">
+        <div class="card-header section-header">
+          <i class="bi bi-grid me-2"></i>Parts Catalogue
+          <small class="text-muted ms-2">Click any field to edit</small>
+        </div>
+        <div class="card-body p-0">
+          {% if parts %}
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 140px;">Product Code</th>
+                  <th>Description</th>
+                  <th style="width: 120px;">Category</th>
+                  <th style="width: 120px;">Make</th>
+                  <th style="width: 140px;">Manufacturer</th>
+                  <th style="width: 120px;">Image</th>
+                  <th style="width: 80px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="parts-table-body">
+                {% for part in parts %}
+                <tr data-product-code="{{ part.product_code }}">
+                  <td><code class="text-primary">{{ part.product_code }}</code></td>
+                  <td class="editable-cell" data-field="description">{{ part.description or '—' }}</td>
+                  <td class="editable-cell" data-field="category">{{ part.category or '—' }}</td>
+                  <td class="editable-cell" data-field="make">{{ part.make or '—' }}</td>
+                  <td class="editable-cell" data-field="manufacturer">{{ part.manufacturer or '—' }}</td>
+                  <td class="editable-cell" data-field="image">{{ part.image or '—' }}</td>
+                  <td class="text-center">
+                    <button class="btn btn-sm btn-outline-danger delete-part" 
+                            data-product-code="{{ part.product_code }}"
+                            title="Delete part">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="text-center py-5 text-muted">
+            <i class="bi bi-inbox display-4"></i>
+            <p class="mt-3">No parts found. Try syncing from GitHub or adjusting your filters.</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="alert alert-light border">
+        <h6><i class="bi bi-info-circle me-2"></i>How to Use</h6>
+        <ul class="mb-0 small">
+          <li><strong>Edit:</strong> Click any field (except Product Code) to edit it inline</li>
+          <li><strong>Save:</strong> Press Enter or click outside the field to save</li>
+          <li><strong>Cancel:</strong> Press Escape to cancel editing</li>
+          <li><strong>Delete:</strong> Use the trash icon to permanently remove a part</li>
+          <li><strong>Sync:</strong> Pull latest data from your GitHub CSV (overwrites local changes)</li>
+          <li><strong>Export:</strong> Download current catalogue as CSV for backup or GitHub upload</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Inline editing functionality
+    let currentlyEditing = null;
+    let originalValue = null;
+
+    function makeEditable(cell) {
+      if (currentlyEditing) {
+        saveEdit(currentlyEditing);
+      }
+
+      currentlyEditing = cell;
+      originalValue = cell.textContent.trim();
+      
+      // Don't edit if it's just a dash
+      const valueToEdit = originalValue === '—' ? '' : originalValue;
+      
+      cell.classList.add('editing');
+      cell.innerHTML = `<input type="text" class="edit-input" value="${valueToEdit}" />`;
+      
+      const input = cell.querySelector('.edit-input');
+      input.focus();
+      input.select();
+
+      input.addEventListener('blur', () => saveEdit(cell));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveEdit(cell);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelEdit(cell);
+        }
+      });
+    }
+
+    function saveEdit(cell) {
+      const input = cell.querySelector('.edit-input');
+      const newValue = input.value.trim();
+      const field = cell.dataset.field;
+      const productCode = cell.closest('tr').dataset.productCode;
+
+      // Update the UI immediately
+      cell.classList.remove('editing');
+      cell.textContent = newValue || '—';
+      currentlyEditing = null;
+
+      // Send update to server
+      fetch(`/admin/catalogue/part/${encodeURIComponent(productCode)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          [field]: newValue
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (!data.success) {
+          // Revert on error
+          cell.textContent = originalValue || '—';
+          showToast('Error updating part: ' + data.message, 'error');
+        } else {
+          showToast('Part updated successfully', 'success');
+        }
+      })
+      .catch(error => {
+        // Revert on error
+        cell.textContent = originalValue || '—';
+        showToast('Error updating part', 'error');
+      });
+    }
+
+    function cancelEdit(cell) {
+      cell.classList.remove('editing');
+      cell.textContent = originalValue || '—';
+      currentlyEditing = null;
+    }
+
+    function deletePart(productCode) {
+      if (!confirm(`Are you sure you want to permanently delete part "${productCode}"?`)) {
+        return;
+      }
+
+      fetch(`/admin/catalogue/part/${encodeURIComponent(productCode)}`, {
+        method: 'DELETE'
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Remove the row from the table
+          const row = document.querySelector(`tr[data-product-code="${productCode}"]`);
+          if (row) {
+            row.remove();
+          }
+          showToast('Part deleted successfully', 'success');
+        } else {
+          showToast('Error deleting part: ' + data.message, 'error');
+        }
+      })
+      .catch(error => {
+        showToast('Error deleting part', 'error');
+      });
+    }
+
+    function showToast(message, type = 'info') {
+      // Create a simple toast notification
+      const toast = document.createElement('div');
+      toast.className = `alert alert-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'} position-fixed`;
+      toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+      toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+      `;
+      
+      document.body.appendChild(toast);
+      
+      // Auto-remove after 4 seconds
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.remove();
+        }
+      }, 4000);
+    }
+
+    // Event listeners
+    document.addEventListener('DOMContentLoaded', function() {
+      // Add click listeners to editable cells
+      document.querySelectorAll('.editable-cell').forEach(cell => {
+        cell.addEventListener('click', () => makeEditable(cell));
+      });
+
+      // Add click listeners to delete buttons
+      document.querySelectorAll('.delete-part').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          deletePart(btn.dataset.productCode);
+        });
+      });
+
+      // Handle clicking outside to save edits
+      document.addEventListener('click', (e) => {
+        if (currentlyEditing && !currentlyEditing.contains(e.target)) {
+          saveEdit(currentlyEditing);
+        }
+      });
+    });
+
+    // Handle flash messages
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+        document.addEventListener('DOMContentLoaded', () => {
+          showToast('{{ message|safe }}', '{{ "success" if category == "success" else "error" if category == "error" else "info" }}');
+        });
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </script>
+</body>
+</html>
