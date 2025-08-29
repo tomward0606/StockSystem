@@ -8,141 +8,237 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
   <style>
     :root{
-      --bg1:#0f172a;   /* slate-900 */
-      --bg2:#1e293b;   /* slate-800 */
-      --fg:#e5e7eb;    /* zinc-200 */
-      --muted:#94a3b8; /* slate-400 */
-      --card:#0b1224cc;/* translucent */
-      --brd:#23304b;   /* border */
-      --brand:#60a5fa; /* blue for brand text if needed */
+      --bg-light: #f8f9fa;
+      --bg-white: #ffffff;
+      --border-light: #e5e7eb;
+      --text-primary: #1f2937;
+      --text-muted: #6b7280;
+      --card-shadow: 0 8px 25px rgba(0,0,0,0.08);
+      --hover-shadow: 0 12px 35px rgba(0,0,0,0.12);
     }
+    
     body{
-      min-height:100vh;
-      background: radial-gradient(1200px 800px at 10% -10%, #1b2a52 0%, transparent 60%),
-                  radial-gradient(1000px 700px at 90% 110%, #0b3a60 0%, transparent 60%),
-                  linear-gradient(135deg, var(--bg1), var(--bg2));
-      color: var(--fg);
+      min-height: 100vh;
+      background-color: var(--bg-light);
+      color: var(--text-primary);
     }
-    .wrap{ max-width:1100px; }
+    
+    .wrap { 
+      max-width: 1100px; 
+    }
 
-    .hero{
-      background: rgba(255,255,255,0.04);
-      border:1px solid var(--brd);
+    .shell {
+      background: var(--bg-white);
+      border: 1px solid var(--border-light);
       border-radius: 18px;
+      box-shadow: var(--card-shadow);
       padding: 24px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
-      margin-bottom: 12px;
-    }
-    .hero h1{ font-weight:700; letter-spacing:0.3px; margin:0 0 6px; }
-    .hero p{ color: var(--muted); margin:0; }
-    .hero-logo{
-      width:auto; height:52px; display:block;
-      border-radius:8px;
     }
 
-    .tile{
-      height:100%;
-      background: var(--card);
-      border:1px solid var(--brd);
+    .hero {
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 16px 18px;
+      background: #f8fafc;
+      margin-bottom: 16px;
+    }
+    
+    .hero-logo { 
+      height: 42px; 
+      width: auto; 
+      display: block; 
+      border-radius: 8px; 
+    }
+    
+    .hero h2 { 
+      margin: 0 0 4px 0; 
+      font-weight: 700; 
+      color: var(--text-primary);
+    }
+    
+    .hero p { 
+      margin: 0; 
+      color: var(--text-muted); 
+    }
+
+    .tile {
+      height: 100%;
+      background: var(--bg-white);
+      border: 1px solid var(--border-light);
       border-radius: 16px;
-      padding: 18px;
-      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+      padding: 20px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      box-shadow: var(--card-shadow);
     }
-    .tile:hover{
+    
+    .tile:hover {
       transform: translateY(-2px);
-      box-shadow: 0 12px 28px rgba(0,0,0,0.28);
-      border-color:#335089;
+      box-shadow: var(--hover-shadow);
+      border-color: #cbd5e1;
     }
-    .tile h5{ margin:0; color:#e8ecf7; }
-    .tile p{ margin:6px 0 14px; color: var(--muted); font-size:0.94rem;}
-    .tile a.btn{
+    
+    .tile h5 { 
+      margin: 0; 
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    
+    .tile p { 
+      margin: 8px 0 16px; 
+      color: var(--text-muted); 
+      font-size: 0.95rem;
+    }
+    
+    .tile a.btn {
       border-radius: 10px;
-      font-weight:600;
-      padding: 9px 12px;
+      font-weight: 600;
+      padding: 10px 16px;
+      width: 100%;
     }
-    .btn-outline-light{ --bs-btn-hover-bg:#e5e7eb; --bs-btn-hover-color:#0f172a; }
+    
+    .btn-primary {
+      background-color: #3b82f6;
+      border-color: #3b82f6;
+    }
+    
+    .btn-primary:hover {
+      background-color: #2563eb;
+      border-color: #2563eb;
+    }
 
-    .section-title{
-      margin: 18px 0 12px;
-      color:#c7d2fe;
-      font-weight:600;
-      letter-spacing:.2px;
-      font-size: .95rem;
+    .section-title {
+      margin: 24px 0 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      font-size: 0.875rem;
       text-transform: uppercase;
     }
 
+    .icon-circle {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 12px;
+    }
+
+    .icon-orders { background-color: #dbeafe; color: #1d4ed8; }
+    .icon-dispatch { background-color: #d1fae5; color: #059669; }
+    .icon-catalogue { background-color: #fde68a; color: #d97706; }
+
     @media (max-width: 576px){
-      .hero{ padding: 18px; }
-      .hero-logo{ height:42px; }
+      .shell { 
+        padding: 16px; 
+        margin: 8px;
+      }
+      .hero { 
+        padding: 12px 14px; 
+      }
+      .hero-logo { 
+        height: 36px; 
+      }
+      .tile {
+        padding: 16px;
+      }
     }
   </style>
 </head>
 <body class="py-4">
   <div class="container wrap">
+    <div class="shell">
 
-    <!-- Hero -->
-    <div class="hero">
-      <div class="d-flex align-items-center gap-3">
-        <!-- Your logo inside the hero -->
-        <img
-          src="{{ url_for('static', filename='logo.png') }}"
-          alt="Servitech International logo"
-          class="hero-logo"
-        />
-        <div>
-          <h1 class="h3 mb-1">Servitech Stock System</h1>
-          <p>Review outstanding requests, dispatch history, and manage what appears in the engineer catalogue.</p>
+      <!-- Hero -->
+      <div class="hero">
+        <div class="d-flex align-items-center gap-3">
+          <img
+            src="{{ url_for('static', filename='logo.png') }}"
+            alt="Servitech International logo"
+            class="hero-logo"
+          />
+          <div>
+            <h2 class="h3">Servitech Stock System</h2>
+            <p>Review outstanding requests, dispatch history, and manage your complete parts catalogue.</p>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="section-title">Actions</div>
+      <div class="section-title">Admin Dashboard</div>
 
-    <!-- Tiles -->
-    <div class="row g-3">
-      <!-- Outstanding by engineer -->
-      <div class="col-12 col-md-6 col-lg-4">
-        <div class="tile h-100">
-          <div class="mb-2">
+      <!-- Action Tiles -->
+      <div class="row g-4">
+        
+        <!-- Outstanding Orders -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="tile">
+            <div class="icon-circle icon-orders">
+              <i class="bi bi-clipboard-data"></i>
+            </div>
             <h5>Outstanding Orders</h5>
+            <p>View all engineers with pending part requests and manage their orders.</p>
+            <a href="{{ url_for('parts_orders_list') }}" class="btn btn-primary">
+              <i class="bi bi-arrow-right me-1"></i> View Orders
+            </a>
           </div>
-          <p>See all engineers and view their order details.</p>
-          <a href="{{ url_for('parts_orders_list') }}" class="btn btn-outline-light w-100">
-            Open Summary
-          </a>
         </div>
-      </div>
 
-      <!-- Dispatched orders list -->
-      <div class="col-12 col-md-6 col-lg-4">
-        <div class="tile h-100">
-          <div class="mb-2">
-            <h5>Dispatched Orders</h5>
+        <!-- Dispatch History -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="tile">
+            <div class="icon-circle icon-dispatch">
+              <i class="bi bi-truck"></i>
+            </div>
+            <h5>Dispatch History</h5>
+            <p>Review all completed dispatches and generate dispatch notes for printing.</p>
+            <a href="{{ url_for('dispatched_orders') }}" class="btn btn-primary">
+              <i class="bi bi-arrow-right me-1"></i> View History
+            </a>
           </div>
-          <p>Shows all past dispatch notes, ordered by date.</p>
-          <a href="/admin/dispatched_orders" class="btn btn-outline-light w-100">
-            View Dispatched
-          </a>
         </div>
-      </div>
 
-      <!-- Catalogue manager (hide/unhide) -->
-      <div class="col-12 col-md-6 col-lg-4">
-        <div class="tile h-100">
-          <div class="mb-2">
+        <!-- Catalogue Manager -->
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="tile">
+            <div class="icon-circle icon-catalogue">
+              <i class="bi bi-grid-3x3-gap"></i>
+            </div>
             <h5>Catalogue Manager</h5>
+            <p>Edit parts, add new items, sync with GitHub CSV, and manage your inventory.</p>
+            <a href="{{ url_for('catalogue_manager') }}" class="btn btn-primary">
+              <i class="bi bi-arrow-right me-1"></i> Manage Catalogue
+            </a>
           </div>
-          <p>Hide or unhide items from the engineer catalogue.</p>
-          <a href="{{ url_for('hidden_parts') }}" class="btn btn-outline-light w-100">
-            Manage Parts
-          </a>
+        </div>
+
+      </div>
+
+      <!-- Quick Stats -->
+      <div class="row mt-5">
+        <div class="col-12">
+          <div class="alert alert-light border">
+            <div class="row text-center">
+              <div class="col-md-4">
+                <h6 class="text-muted mb-1">System Status</h6>
+                <span class="badge bg-success">Online</span>
+              </div>
+              <div class="col-md-4">
+                <h6 class="text-muted mb-1">Database</h6>
+                <span class="badge bg-success">Connected</span>
+              </div>
+              <div class="col-md-4">
+                <h6 class="text-muted mb-1">Email Service</h6>
+                <span class="badge bg-success">Active</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
+    </div>
   </div>
 </body>
 </html>
-
 
