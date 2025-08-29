@@ -607,24 +607,23 @@ def add_part():
     
     return redirect(url_for('catalogue_manager'))
 
-@app.route("/admin/catalogue/part/<product_code>", methods=["PUT", "DELETE"])
+@app.route("/admin/catalogue/part/<path:product_code>", methods=["PUT", "DELETE"])
 def update_or_delete_part(product_code):
-    """DEBUG VERSION: Update or delete a part with extensive logging"""
+    """FIXED VERSION: Handle special characters in product codes"""
+    # Decode URL-encoded product code
+    product_code = unquote(product_code)
     print(f"=== DEBUG: Received {request.method} request for product_code: '{product_code}' ===")
     
     try:
         # Log request details
         print(f"Request method: {request.method}")
-        print(f"Request headers: {dict(request.headers)}")
-        print(f"Request content type: {request.content_type}")
+        print(f"Decoded product code: '{product_code}'")
         
         if request.method == "PUT":
-            print(f"Request data: {request.get_data()}")
             print(f"Request JSON: {request.get_json()}")
         
         # Check GitHub token
         print(f"GITHUB_TOKEN set: {bool(GITHUB_TOKEN)}")
-        print(f"GITHUB_TOKEN length: {len(GITHUB_TOKEN) if GITHUB_TOKEN else 0}")
         
         # Get current CSV from GitHub API
         print("Attempting to fetch CSV from GitHub...")
@@ -646,7 +645,6 @@ def update_or_delete_part(product_code):
         print(f"Looking for part with product_code: '{product_code}'")
         part_index = None
         for i, part in enumerate(parts):
-            print(f"Checking part {i}: '{part['product_code']}'")
             if part['product_code'] == product_code:
                 part_index = i
                 print(f"Found matching part at index {i}")
@@ -655,24 +653,18 @@ def update_or_delete_part(product_code):
         if part_index is None:
             error_msg = f"Part '{product_code}' not found in {len(parts)} parts"
             print(f"ERROR: {error_msg}")
-            # Print all product codes for debugging
-            print("Available product codes:")
-            for i, part in enumerate(parts[:10]):  # Show first 10
-                print(f"  {i}: '{part['product_code']}'")
             return jsonify({"success": False, "message": error_msg})
         
         print(f"Found part at index {part_index}: {parts[part_index]}")
         
         if request.method == "DELETE":
             print("Processing DELETE request...")
-            # Remove the part
             deleted_part = parts.pop(part_index)
             commit_message = f"Delete part: {product_code}"
             print(f"Deleted part: {deleted_part}")
             
         elif request.method == "PUT":
             print("Processing PUT request...")
-            # Update the part
             data = request.get_json()
             if not data:
                 error_msg = "No JSON data provided in PUT request"
@@ -708,7 +700,7 @@ def update_or_delete_part(product_code):
             commit_message = f"Update part: {product_code}"
             print(f"Updated part: {part}")
         
-        # Update GitHub with extensive logging
+        # Update GitHub
         print(f"Attempting to update GitHub with commit message: '{commit_message}'")
         print(f"Total parts to write: {len(parts)}")
         
@@ -723,7 +715,7 @@ def update_or_delete_part(product_code):
         print("Full traceback:")
         traceback.print_exc()
         return jsonify({"success": False, "message": error_msg})
-
+        
 @app.route("/admin/catalogue/export")
 def export_catalogue():
     try:
@@ -877,4 +869,5 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
 
