@@ -150,9 +150,6 @@
               <small class="text-muted">All changes are committed directly to your GitHub repository with full version control.</small>
             </div>
             <div class="col-md-4 text-end">
-              <a href="/admin/catalogue/test_github" class="btn btn-outline-primary me-2">
-                <i class="bi bi-github me-1"></i> Test Connection
-              </a>
               <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary">
                 <i class="bi bi-download me-1"></i> Export CSV
               </a>
@@ -280,10 +277,7 @@
           {% else %}
           <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox display-4"></i>
-            <p class="mt-3">No parts found. Try adjusting your filters or check your GitHub connection.</p>
-            <a href="/admin/catalogue/test_github" class="btn btn-outline-primary">
-              <i class="bi bi-github me-1"></i> Test GitHub Connection
-            </a>
+            <p class="mt-3">No parts found. Try adjusting your filters.</p>
           </div>
           {% endif %}
         </div>
@@ -298,7 +292,7 @@
           <li><strong>Cancel:</strong> Press Escape to cancel editing</li>
           <li><strong>Delete:</strong> Use the trash icon to permanently remove a part from GitHub</li>
           <li><strong>Add:</strong> Use the form above to add new parts directly to your repository</li>
-          <li><strong>Version Control:</strong> All changes create commits in your GitHub repository</li>
+          <li><strong>Export:</strong> Download your current catalogue as a CSV backup</li>
         </ul>
       </div>
 
