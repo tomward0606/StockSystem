@@ -126,35 +126,15 @@
         <div class="d-flex align-items-center gap-3">
           <img src="{{ url_for('static', filename='logo.png') }}" alt="Servitech logo" class="hero-logo">
           <div>
-            <h2 class="h4 mb-1">Parts Catalogue Manager</h2>
-            <p class="mb-0 text-muted">Manage your complete parts inventory with direct GitHub integration</p>
+            <h2 class="h4 mb-1">Parts Catalogue</h2>
+            <p class="mb-0 text-muted">Manage your complete parts inventory</p>
           </div>
         </div>
         <div class="d-flex gap-2">
-          <a class="btn btn-outline-secondary" href="{{ url_for('home') }}">Back to Home</a>
-        </div>
-      </div>
-
-      <!-- GitHub Integration Section -->
-      <div class="section-card">
-        <div class="card-header section-header">
-          <div class="d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-github me-2"></i>GitHub CSV Integration</span>
-            <small class="text-muted">Direct repository editing</small>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="row align-items-center">
-            <div class="col-md-8">
-              <p class="mb-2">Connected to <code>tomward0606/PartsProjectMain/parts.csv</code></p>
-              <small class="text-muted">All changes are committed directly to your GitHub repository with full version control.</small>
-            </div>
-            <div class="col-md-4 text-end">
-              <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-download me-1"></i> Export CSV
-              </a>
-            </div>
-          </div>
+          <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i> Export
+          </a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('parts_orders_list') }}">Back to Admin</a>
         </div>
       </div>
 
@@ -192,7 +172,7 @@
               </div>
               <div class="col-12 text-end">
                 <button type="submit" class="btn btn-success">
-                  <i class="bi bi-plus me-1"></i> Add Part to GitHub
+                  <i class="bi bi-plus me-1"></i> Add Part
                 </button>
               </div>
             </div>
@@ -236,7 +216,7 @@
       <div class="section-card">
         <div class="card-header section-header">
           <i class="bi bi-grid me-2"></i>Parts Catalogue
-          <small class="text-muted ms-2">Click any field to edit • Changes commit to GitHub</small>
+          <small class="text-muted ms-2">Click any field to edit</small>
         </div>
         <div class="card-body p-0">
           {% if parts %}
@@ -265,7 +245,7 @@
                   <td class="text-center">
                     <button class="btn btn-sm btn-outline-danger delete-part" 
                             data-product-code="{{ part.product_code }}"
-                            title="Delete part from GitHub">
+                            title="Delete part">
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>
@@ -285,14 +265,13 @@
 
       <!-- Instructions -->
       <div class="alert alert-light border">
-        <h6><i class="bi bi-info-circle me-2"></i>How to Use</h6>
+        <h6><i class="bi bi-info-circle me-2"></i>Quick Guide</h6>
         <ul class="mb-0 small">
-          <li><strong>Edit:</strong> Click any field (except Product Code) to edit it inline</li>
-          <li><strong>Save:</strong> Press Enter or click outside the field to save and commit to GitHub</li>
-          <li><strong>Cancel:</strong> Press Escape to cancel editing</li>
-          <li><strong>Delete:</strong> Use the trash icon to permanently remove a part from GitHub</li>
-          <li><strong>Add:</strong> Use the form above to add new parts directly to your repository</li>
-          <li><strong>Export:</strong> Download your current catalogue as a CSV backup</li>
+          <li><strong>Edit:</strong> Click any field to edit it inline</li>
+          <li><strong>Save:</strong> Press Enter or click outside to save</li>
+          <li><strong>Cancel:</strong> Press Escape to cancel</li>
+          <li><strong>Delete:</strong> Use the trash icon to remove parts</li>
+          <li><strong>Add:</strong> Fill out the form above to add new parts</li>
         </ul>
       </div>
 
@@ -362,7 +341,7 @@
           cell.textContent = originalValue || '—';
           showToast('Error updating part: ' + data.message, 'error');
         } else {
-          showToast('Part updated in GitHub successfully', 'success');
+          showToast('Part updated successfully', 'success');
         }
       })
       .catch(error => {
@@ -379,7 +358,7 @@
     }
 
     function deletePart(productCode) {
-      if (!confirm(`Are you sure you want to permanently delete part "${productCode}" from GitHub?`)) {
+      if (!confirm(`Are you sure you want to delete part "${productCode}"?`)) {
         return;
       }
 
@@ -394,7 +373,7 @@
           if (row) {
             row.remove();
           }
-          showToast('Part deleted from GitHub successfully', 'success');
+          showToast('Part deleted successfully', 'success');
         } else {
           showToast('Error deleting part: ' + data.message, 'error');
         }
