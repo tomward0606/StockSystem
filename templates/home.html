@@ -206,10 +206,15 @@
               <i class="bi bi-grid-3x3-gap"></i>
             </div>
             <h5>Catalogue Manager</h5>
-            <p>Edit parts, add new items, sync with GitHub CSV, and manage your inventory.</p>
-            <a href="{{ url_for('catalogue_manager') }}" class="btn btn-primary">
-              <i class="bi bi-arrow-right me-1"></i> Manage Catalogue
-            </a>
+            <p>Edit parts directly in your GitHub CSV. Add, update, delete parts with real-time sync.</p>
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('catalogue_manager') }}" class="btn btn-primary flex-fill">
+                <i class="bi bi-arrow-right me-1"></i> Open Catalogue
+              </a>
+              <a href="/admin/catalogue/setup" class="btn btn-outline-secondary" title="Setup Instructions">
+                <i class="bi bi-gear"></i>
+              </a>
+            </div>
           </div>
         </div>
 
@@ -220,17 +225,21 @@
         <div class="col-12">
           <div class="alert alert-light border">
             <div class="row text-center">
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <h6 class="text-muted mb-1">System Status</h6>
                 <span class="badge bg-success">Online</span>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <h6 class="text-muted mb-1">Database</h6>
                 <span class="badge bg-success">Connected</span>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <h6 class="text-muted mb-1">Email Service</h6>
                 <span class="badge bg-success">Active</span>
+              </div>
+              <div class="col-md-3">
+                <h6 class="text-muted mb-1">GitHub CSV</h6>
+                <span class="badge bg-info">Ready</span>
               </div>
             </div>
           </div>
