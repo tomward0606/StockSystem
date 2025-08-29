@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Servitech STOCK SYSTEM - Production Version
+# Servitech STOCK SYSTEM - Production Version with Debug
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Core Imports ──────────────────────────────────────────────────────────────
@@ -8,6 +8,7 @@ import os
 import csv
 import io
 import base64
+import traceback
 from types import SimpleNamespace
 
 # ── Flask & Extensions ────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ def get_back_orders(engineer_email: str):
         .all()
     )
 
-# ── GitHub CSV Functions (Fixed) ──────────────────────────────────────────────
+# ── GitHub CSV Functions (Debug Version) ─────────────────────────────────────
 
 def fetch_csv_from_github():
     """Fetch CSV content directly from GitHub repository"""
@@ -168,43 +169,78 @@ def parse_csv_content(csv_content):
         return []
 
 def get_github_file_info():
-    """Get file content and SHA from GitHub API - FIXED VERSION"""
+    """DEBUG VERSION: Get file content and SHA from GitHub API"""
+    print("=== DEBUG: get_github_file_info called ===")
+    
     if not GITHUB_TOKEN:
+        print("ERROR: No GITHUB_TOKEN provided")
         return None, None
+    
+    print(f"Using GITHUB_TOKEN: {GITHUB_TOKEN[:10]}...")
+    print(f"Repository: {GITHUB_REPO}")
+    print(f"File path: {CSV_FILE_PATH}")
     
     try:
         api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CSV_FILE_PATH}"
-        headers = {
-            'Authorization': f'Bearer {GITHUB_TOKEN}',  # Fixed: Use Bearer instead of token
-            'Accept': 'application/vnd.github+json',    # Fixed: Updated Accept header
-            'X-GitHub-Api-Version': '2022-11-28'        # Fixed: Added API version
-        }
+        print(f"API URL: {api_url}")
         
+        headers = {
+            'Authorization': f'Bearer {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
+        }
+        print(f"Request headers: {headers}")
+        
+        print("Making request to GitHub API...")
         response = requests.get(api_url, headers=headers, timeout=10)
+        print(f"Response status: {response.status_code}")
+        print(f"Response headers: {dict(response.headers)}")
+        
+        if response.status_code != 200:
+            print(f"ERROR: GitHub API returned {response.status_code}")
+            print(f"Response text: {response.text}")
+            return None, None
+        
         response.raise_for_status()
         
         file_data = response.json()
+        print(f"File data keys: {file_data.keys()}")
+        print(f"File SHA: {file_data.get('sha', 'NOT FOUND')}")
+        
         content = base64.b64decode(file_data['content']).decode('utf-8')
         sha = file_data['sha']
         
+        print(f"Decoded content length: {len(content)} characters")
+        print(f"First 100 chars: {content[:100]}")
+        
         return content, sha
     except Exception as e:
-        print(f"Error getting GitHub file info: {e}")
+        print(f"Exception in get_github_file_info: {str(e)}")
+        traceback.print_exc()
         return None, None
 
 def update_github_csv(parts_list, sha, commit_message):
-    """Update CSV file in GitHub repository - FIXED VERSION"""
+    """DEBUG VERSION: Update CSV file in GitHub repository"""
+    print("=== DEBUG: update_github_csv called ===")
+    print(f"Parts to write: {len(parts_list)}")
+    print(f"SHA: {sha}")
+    print(f"Commit message: {commit_message}")
+    
     if not GITHUB_TOKEN:
-        return False, "GitHub token not configured"
+        error_msg = "GitHub token not configured"
+        print(f"ERROR: {error_msg}")
+        return False, error_msg
     
     try:
         # Convert parts list to CSV format
+        print("Converting parts to CSV format...")
         output = io.StringIO()
         fieldnames = ['Product Code', 'Description', 'Category', 'Make', 'Manufacturer', 'image']
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         
         writer.writeheader()
-        for part in parts_list:
+        for i, part in enumerate(parts_list):
+            print(f"Writing part {i}: {part['product_code']}")
             writer.writerow({
                 'Product Code': part.get('product_code', ''),
                 'Description': part.get('description', ''),
@@ -215,32 +251,51 @@ def update_github_csv(parts_list, sha, commit_message):
             })
         
         csv_content = output.getvalue()
+        print(f"Generated CSV length: {len(csv_content)} characters")
+        print(f"First 200 chars: {csv_content[:200]}")
         
         # Update in GitHub with fixed headers
         api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CSV_FILE_PATH}"
+        print(f"Update API URL: {api_url}")
+        
         headers = {
-            'Authorization': f'Bearer {GITHUB_TOKEN}',  # Fixed: Use Bearer
-            'Accept': 'application/vnd.github+json',    # Fixed: Updated Accept header
-            'X-GitHub-Api-Version': '2022-11-28',       # Fixed: Added API version
-            'Content-Type': 'application/json'          # Fixed: Added Content-Type
+            'Authorization': f'Bearer {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json'
         }
+        print(f"Update headers: {headers}")
         
         encoded_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
+        print(f"Encoded content length: {len(encoded_content)}")
         
         data = {
             'message': commit_message,
             'content': encoded_content,
             'sha': sha
         }
+        print(f"Request data keys: {data.keys()}")
         
+        print("Making PUT request to GitHub...")
         response = requests.put(api_url, json=data, headers=headers, timeout=30)
+        print(f"PUT response status: {response.status_code}")
+        print(f"PUT response headers: {dict(response.headers)}")
+        
+        if response.status_code not in [200, 201]:
+            print(f"ERROR: GitHub PUT returned {response.status_code}")
+            print(f"Response text: {response.text}")
+            return False, f"GitHub API error: {response.status_code} - {response.text}"
+        
         response.raise_for_status()
         
+        print("GitHub update successful!")
         return True, "Successfully updated GitHub repository"
         
     except Exception as e:
-        print(f"GitHub update error: {e}")
-        return False, f"Failed to update GitHub: {str(e)}"
+        error_msg = f"Exception in update_github_csv: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        traceback.print_exc()
+        return False, error_msg
 
 # ── Email Functions ───────────────────────────────────────────────────────────
 
@@ -473,7 +528,7 @@ def view_dispatch_note(dispatch_id: int):
     back_orders = get_back_orders(dispatch.engineer_email)
     return render_template("dispatch_note.html", dispatch=dispatch, sent_items=sent_items, back_orders=back_orders)
 
-# ── Catalogue Management Routes (Fixed) ──────────────────────────────────────
+# ── Catalogue Management Routes (Debug Version) ──────────────────────────────
 
 @app.route("/admin/catalogue")
 def catalogue_manager():
@@ -554,61 +609,119 @@ def add_part():
 
 @app.route("/admin/catalogue/part/<product_code>", methods=["PUT", "DELETE"])
 def update_or_delete_part(product_code):
-    """FIXED: Update or delete a part directly in GitHub CSV"""
+    """DEBUG VERSION: Update or delete a part with extensive logging"""
+    print(f"=== DEBUG: Received {request.method} request for product_code: '{product_code}' ===")
+    
     try:
+        # Log request details
+        print(f"Request method: {request.method}")
+        print(f"Request headers: {dict(request.headers)}")
+        print(f"Request content type: {request.content_type}")
+        
+        if request.method == "PUT":
+            print(f"Request data: {request.get_data()}")
+            print(f"Request JSON: {request.get_json()}")
+        
+        # Check GitHub token
+        print(f"GITHUB_TOKEN set: {bool(GITHUB_TOKEN)}")
+        print(f"GITHUB_TOKEN length: {len(GITHUB_TOKEN) if GITHUB_TOKEN else 0}")
+        
         # Get current CSV from GitHub API
+        print("Attempting to fetch CSV from GitHub...")
         csv_content, sha = get_github_file_info()
+        print(f"CSV content received: {bool(csv_content)}")
+        print(f"SHA received: {sha[:8] if sha else None}...")
+        
         if csv_content is None:
-            return jsonify({"success": False, "message": "Could not access GitHub API. Check your GITHUB_TOKEN."})
+            error_msg = "Could not access GitHub API. Check your GITHUB_TOKEN."
+            print(f"ERROR: {error_msg}")
+            return jsonify({"success": False, "message": error_msg})
         
         # Parse existing parts
+        print("Parsing CSV content...")
         parts = parse_csv_content(csv_content)
+        print(f"Parts parsed: {len(parts)} parts found")
         
         # Find the part to update/delete
+        print(f"Looking for part with product_code: '{product_code}'")
         part_index = None
         for i, part in enumerate(parts):
+            print(f"Checking part {i}: '{part['product_code']}'")
             if part['product_code'] == product_code:
                 part_index = i
+                print(f"Found matching part at index {i}")
                 break
         
         if part_index is None:
-            return jsonify({"success": False, "message": "Part not found"})
+            error_msg = f"Part '{product_code}' not found in {len(parts)} parts"
+            print(f"ERROR: {error_msg}")
+            # Print all product codes for debugging
+            print("Available product codes:")
+            for i, part in enumerate(parts[:10]):  # Show first 10
+                print(f"  {i}: '{part['product_code']}'")
+            return jsonify({"success": False, "message": error_msg})
+        
+        print(f"Found part at index {part_index}: {parts[part_index]}")
         
         if request.method == "DELETE":
+            print("Processing DELETE request...")
             # Remove the part
             deleted_part = parts.pop(part_index)
             commit_message = f"Delete part: {product_code}"
+            print(f"Deleted part: {deleted_part}")
             
         elif request.method == "PUT":
+            print("Processing PUT request...")
             # Update the part
             data = request.get_json()
             if not data:
-                return jsonify({"success": False, "message": "No data provided"})
+                error_msg = "No JSON data provided in PUT request"
+                print(f"ERROR: {error_msg}")
+                return jsonify({"success": False, "message": error_msg})
                 
+            print(f"Update data received: {data}")
             part = parts[part_index]
+            print(f"Original part: {part}")
             
             # Update only the provided fields
             if 'description' in data:
+                old_val = part['description']
                 part['description'] = str(data['description']).strip()
+                print(f"Updated description: '{old_val}' -> '{part['description']}'")
             if 'category' in data:
+                old_val = part['category']
                 part['category'] = str(data['category']).strip()
+                print(f"Updated category: '{old_val}' -> '{part['category']}'")
             if 'make' in data:
+                old_val = part['make']
                 part['make'] = str(data['make']).strip()
+                print(f"Updated make: '{old_val}' -> '{part['make']}'")
             if 'manufacturer' in data:
+                old_val = part['manufacturer']
                 part['manufacturer'] = str(data['manufacturer']).strip()
+                print(f"Updated manufacturer: '{old_val}' -> '{part['manufacturer']}'")
             if 'image' in data:
+                old_val = part['image']
                 part['image'] = str(data['image']).strip()
+                print(f"Updated image: '{old_val}' -> '{part['image']}'")
             
             commit_message = f"Update part: {product_code}"
+            print(f"Updated part: {part}")
         
-        # Update GitHub with better error handling
+        # Update GitHub with extensive logging
+        print(f"Attempting to update GitHub with commit message: '{commit_message}'")
+        print(f"Total parts to write: {len(parts)}")
+        
         success, message = update_github_csv(parts, sha, commit_message)
+        print(f"GitHub update result - Success: {success}, Message: '{message}'")
         
         return jsonify({"success": success, "message": message})
         
     except Exception as e:
-        error_msg = f"Error processing request: {str(e)}"
-        print(error_msg)  # Log the error
+        error_msg = f"Exception in update_or_delete_part: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        print("Full traceback:")
+        traceback.print_exc()
         return jsonify({"success": False, "message": error_msg})
 
 @app.route("/admin/catalogue/export")
@@ -628,6 +741,61 @@ def export_catalogue():
         flash(f"Export failed: {str(e)}", "error")
         return redirect(url_for('catalogue_manager'))
 
+@app.route("/admin/catalogue/debug_test")
+def debug_test():
+    """Test route to check GitHub connectivity"""
+    print("=== DEBUG TEST ROUTE ===")
+    
+    # Test 1: Check environment variables
+    print(f"GITHUB_TOKEN set: {bool(GITHUB_TOKEN)}")
+    print(f"GITHUB_REPO: {GITHUB_REPO}")
+    print(f"CSV_FILE_PATH: {CSV_FILE_PATH}")
+    
+    # Test 2: Try to fetch CSV
+    print("Testing CSV fetch...")
+    csv_content = fetch_csv_from_github()
+    print(f"Public CSV fetch success: {bool(csv_content)}")
+    
+    # Test 3: Try GitHub API
+    print("Testing GitHub API...")
+    api_content, sha = get_github_file_info()
+    print(f"API fetch success: {bool(api_content and sha)}")
+    
+    # Test 4: Parse parts
+    parts = []
+    if csv_content:
+        parts = parse_csv_content(csv_content)
+        print(f"Parsed {len(parts)} parts")
+        if parts:
+            print(f"First part: {parts[0]}")
+    
+    return f"""
+    <div style="font-family: system-ui; padding: 40px; max-width: 700px; margin: 0 auto;">
+        <h2>Debug Test Results</h2>
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h4>Configuration:</h4>
+            <ul>
+                <li><strong>GITHUB_TOKEN:</strong> {'✅ Set (' + str(len(GITHUB_TOKEN)) + ' chars)' if GITHUB_TOKEN else '❌ Not set'}</li>
+                <li><strong>GITHUB_REPO:</strong> {GITHUB_REPO}</li>
+                <li><strong>CSV_FILE_PATH:</strong> {CSV_FILE_PATH}</li>
+            </ul>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h4>Connectivity Tests:</h4>
+            <ul>
+                <li><strong>Public CSV fetch:</strong> {'✅ Success' if csv_content else '❌ Failed'}</li>
+                <li><strong>GitHub API fetch:</strong> {'✅ Success' if api_content and sha else '❌ Failed'}</li>
+                <li><strong>Parts parsed:</strong> {len(parts) if parts else 0}</li>
+            </ul>
+        </div>
+        
+        {f'<div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;"><h4>Sample Data:</h4><pre>{str(parts[0]) if parts else "No parts found"}</pre></div>' if parts else ''}
+        
+        <p><a href="/admin/catalogue">← Back to Catalogue</a></p>
+    </div>
+    """
+
 # ── Legacy Routes ─────────────────────────────────────────────────────────────
 
 @app.route("/admin/hidden-parts")
@@ -641,4 +809,3 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
-
