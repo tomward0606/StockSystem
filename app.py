@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Servitech STOCK SYSTEM - Complete Application
+# Servitech STOCK SYSTEM - Complete Application (Secure Version)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Core Imports ──────────────────────────────────────────────────────────────
@@ -17,14 +17,19 @@ from flask_mail import Mail, Message
 from sqlalchemy import func
 import requests
 
-# ── App Configuration ─────────────────────────────────────────────────────────
+# ── App Configuration (Secure with Environment Variables) ────────────────────
 app = Flask(__name__)
 
-# Basic configuration
-app.config["SECRET_KEY"] = "devkey"
+# Security: Use environment variables for sensitive data
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key-change-in-production")
 
-# Database configuration - Render PostgreSQL with SSL
-app.config["SQLALCHEMY_DATABASE_URI"] = (
+# Database configuration - Secure with environment variables
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    # Render uses postgres:// but SQLAlchemy 1.4+ requires postgresql://
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or (
     "postgresql://servitech_db_user:"
     "79U6KaAxlHdUfOeEt1iVDc65KXFLPie2"
     "@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com"
@@ -32,25 +37,51 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Email configuration
-app.config["MAIL_SERVER"] = "smtp.gmail.com"
-app.config["MAIL_PORT"] = 587
-app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = "servitech.stock@gmail.com"
-app.config["MAIL_PASSWORD"] = "qmorqthzpbxqnkrp"
+# Email configuration - Secure with environment variables
+app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
+app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "True").lower() == "true"
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "servitech.stock@gmail.com")
+app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD")  # Must be set in environment
 app.config["MAIL_DEFAULT_SENDER"] = (
     "Servitech Stock",
     app.config["MAIL_USERNAME"],
 )
 
+# GitHub configuration - Secure with environment variables
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "your_github_token_here")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "tomward0606/PartsProjectMain")
+CSV_FILE_PATH = os.environ.get("CSV_FILE_PATH", "parts.csv")
+
 # Initialize extensions
 db = SQLAlchemy(app)
 mail = Mail(app)
 
-# ── GitHub Configuration ──────────────────────────────────────────────────────
-GITHUB_TOKEN = "your_github_token_here"  # Replace with actual token
-GITHUB_REPO = "tomward0606/PartsProjectMain"
-CSV_FILE_PATH = "parts.csv"
+# ── Security Check Function ───────────────────────────────────────────────────
+def check_required_env_vars():
+    """Check if all required environment variables are set"""
+    required_vars = {
+        'MAIL_PASSWORD': 'Email password for sending notifications',
+        'SECRET_KEY': 'Flask secret key for sessions and security',
+    }
+    
+    optional_vars = {
+        'GITHUB_TOKEN': 'GitHub token for editing catalogue (read-only without it)',
+        'DATABASE_URL': 'Database connection URL (falls back to hardcoded)',
+    }
+    
+    missing_required = []
+    missing_optional = []
+    
+    for var, description in required_vars.items():
+        if not os.environ.get(var):
+            missing_required.append(f"  • {var}: {description}")
+    
+    for var, description in optional_vars.items():
+        if not os.environ.get(var) or os.environ.get(var) == "your_github_token_here":
+            missing_optional.append(f"  • {var}: {description}")
+    
+    return missing_required, missing_optional
 
 # ── Database Models ───────────────────────────────────────────────────────────
 
@@ -191,7 +222,7 @@ def parse_csv_content(csv_content):
 
 def get_github_file_info():
     """Get file content and SHA from GitHub API (needed for updates)"""
-    if GITHUB_TOKEN == "your_github_token_here":
+    if GITHUB_TOKEN == "your_github_token_here" or not GITHUB_TOKEN:
         return None, None  # Token not configured
     
     try:
@@ -215,7 +246,7 @@ def get_github_file_info():
 
 def update_github_csv(parts_list, sha, commit_message):
     """Update CSV file in GitHub repository"""
-    if GITHUB_TOKEN == "your_github_token_here":
+    if GITHUB_TOKEN == "your_github_token_here" or not GITHUB_TOKEN:
         return False, "GitHub token not configured"
     
     try:
@@ -331,6 +362,11 @@ def build_html_email(sent_items, back_orders, dispatch, generated_at=None) -> st
 
 def send_dispatch_email(engineer_email: str, dispatch_id: int) -> None:
     """Send dispatch notification email with HTML and plain text versions"""
+    # Check if email is configured
+    if not app.config["MAIL_PASSWORD"]:
+        print("Warning: Email not configured - MAIL_PASSWORD environment variable not set")
+        return
+    
     dispatch = DispatchNote.query.get(dispatch_id)
     if not dispatch:
         return
@@ -366,29 +402,89 @@ def send_dispatch_email(engineer_email: str, dispatch_id: int) -> None:
 
     lines.append("\nThank you,\nServitech Stock System")
 
-    # Send email with both plain text and HTML
-    msg = Message(subject=subject, recipients=[engineer_email], body="\n".join(lines))
-    msg.html = build_html_email(sent_items, back_orders, dispatch)
-    mail.send(msg)
+    try:
+        # Send email with both plain text and HTML
+        msg = Message(subject=subject, recipients=[engineer_email], body="\n".join(lines))
+        msg.html = build_html_email(sent_items, back_orders, dispatch)
+        mail.send(msg)
+    except Exception as e:
+        print(f"Error sending email: {e}")
 
 # ── Main Routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def home():
-    """Main dashboard page"""
-    return render_template("home.html")
+    """Main dashboard page with environment variable status"""
+    missing_required, missing_optional = check_required_env_vars()
+    return render_template("home.html", 
+                         missing_required=missing_required, 
+                         missing_optional=missing_optional)
 
+@app.route("/admin/env_status")
+def env_status():
+    """Show environment variable configuration status"""
+    missing_required, missing_optional = check_required_env_vars()
+    
+    config_status = {
+        'SECRET_KEY': '✅ Set' if os.environ.get('SECRET_KEY') else '❌ Using default (insecure)',
+        'DATABASE_URL': '✅ Set' if os.environ.get('DATABASE_URL') else '⚠️ Using fallback',
+        'MAIL_USERNAME': os.environ.get('MAIL_USERNAME', 'servitech.stock@gmail.com'),
+        'MAIL_PASSWORD': '✅ Set' if os.environ.get('MAIL_PASSWORD') else '❌ Not set',
+        'GITHUB_TOKEN': '✅ Set' if os.environ.get('GITHUB_TOKEN') and os.environ.get('GITHUB_TOKEN') != 'your_github_token_here' else '⚠️ Not configured',
+        'GITHUB_REPO': os.environ.get('GITHUB_REPO', 'tomward0606/PartsProjectMain'),
+        'CSV_FILE_PATH': os.environ.get('CSV_FILE_PATH', 'parts.csv')
+    }
+    
+    return f"""
+    <div style="font-family: system-ui; padding: 40px; max-width: 800px; margin: 0 auto;">
+        <h1>🔐 Environment Variables Status</h1>
+        
+        <div style="background: {'#d4edda' if not missing_required else '#f8d7da'}; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3>Security Status: {'✅ Secure' if not missing_required else '❌ Needs Attention'}</h3>
+            {'<p>All required environment variables are properly configured.</p>' if not missing_required else f'<p>Missing required variables: {len(missing_required)}</p>'}
+        </div>
+        
+        <h3>Current Configuration:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr style="background: #f8f9fa;">
+                <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Variable</th>
+                <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Status</th>
+            </tr>
+            {''.join(f'<tr><td style="padding: 8px; border: 1px solid #dee2e6;"><code>{var}</code></td><td style="padding: 8px; border: 1px solid #dee2e6;">{status}</td></tr>' for var, status in config_status.items())}
+        </table>
+        
+        {'<h3>⚠️ Missing Required Variables:</h3><ul>' + ''.join(f'<li>{var}</li>' for var in missing_required) + '</ul>' if missing_required else ''}
+        {'<h3>Optional Variables:</h3><ul>' + ''.join(f'<li>{var}</li>' for var in missing_optional) + '</ul>' if missing_optional else ''}
+        
+        <h3>📝 How to Set Environment Variables in Render:</h3>
+        <ol>
+            <li>Go to your Render dashboard</li>
+            <li>Select your web service</li>
+            <li>Go to "Environment" tab</li>
+            <li>Click "Add Environment Variable"</li>
+            <li>Set the required variables listed above</li>
+        </ol>
+        
+        <p><a href="/">← Back to Home</a></p>
+    </div>
+    """
 
 @app.route("/test_email")
 def test_email():
-    """Quick email configuration test"""
-    msg = Message(
-        subject="Test Email from Stock System",
-        recipients=["tomward0606@gmail.com"],
-        body="This is a test email from the Servitech Stock system.",
-    )
-    mail.send(msg)
-    return "Test email sent!"
+    """Test email configuration"""
+    if not app.config["MAIL_PASSWORD"]:
+        return "❌ Cannot test email - MAIL_PASSWORD environment variable not set"
+    
+    try:
+        msg = Message(
+            subject="Test Email from Stock System",
+            recipients=["tomward0606@gmail.com"],
+            body="This is a test email from the Servitech Stock system. Environment variables are working!",
+        )
+        mail.send(msg)
+        return "✅ Test email sent successfully!"
+    except Exception as e:
+        return f"❌ Email test failed: {str(e)}"
 
 # ── Parts Order Management Routes ─────────────────────────────────────────────
 
@@ -722,7 +818,7 @@ def test_github_connection():
             
             # Test API access (if token is configured)
             api_status = "Not configured"
-            if GITHUB_TOKEN != "your_github_token_here":
+            if GITHUB_TOKEN and GITHUB_TOKEN != "your_github_token_here":
                 api_content, sha = get_github_file_info()
                 if api_content and sha:
                     api_status = f"✅ Connected (SHA: {sha[:8]}...)"
@@ -747,10 +843,10 @@ def test_github_connection():
                 <h4>First 5 lines of CSV:</h4>
                 <pre style="background: #f8f9fa; padding: 15px; border-radius: 8px; overflow-x: auto;">{'<br>'.join(lines)}</pre>
                 
-                <div style="background: {'#d4edda' if GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <h5>{'✅ Ready for Editing' if GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Read-Only Mode'}</h5>
-                    <p>{'You can add, edit, and delete parts.' if GITHUB_TOKEN != 'your_github_token_here' else 'You can view parts but need to configure a GitHub token to edit.'}</p>
-                    {'<p><a href="/admin/catalogue/setup">→ Configure GitHub Token</a></p>' if GITHUB_TOKEN == 'your_github_token_here' else ''}
+                <div style="background: {'#d4edda' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <h5>{'✅ Ready for Editing' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Read-Only Mode'}</h5>
+                    <p>{'You can add, edit, and delete parts.' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else 'You can view parts but need to configure a GitHub token to edit.'}</p>
+                    {'<p><a href="/admin/catalogue/setup">→ Configure GitHub Token</a></p>' if not GITHUB_TOKEN or GITHUB_TOKEN == 'your_github_token_here' else ''}
                 </div>
                 
                 <p><a href="/admin/catalogue">→ Go to Catalogue Manager</a></p>
@@ -787,39 +883,50 @@ def catalogue_setup():
     <div style="font-family: system-ui; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6;">
         <h1 style="color: #0d6efd;">🔧 GitHub Catalogue Setup</h1>
         
-        <div style="background: {'#d4edda' if GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; border: 1px solid {'#c3e6cb' if GITHUB_TOKEN != 'your_github_token_here' else '#ffc107'}; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3>{'✅ Token Configured' if GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Setup Required'}</h3>
-            <p>{'Your GitHub token is configured and you can edit parts.' if GITHUB_TOKEN != 'your_github_token_here' else 'To edit your GitHub CSV directly, you need a GitHub Personal Access Token.'}</p>
+        <div style="background: {'#d4edda' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '#fff3cd'}; border: 1px solid {'#c3e6cb' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '#ffc107'}; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3>{'✅ Token Configured' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '⚠️ Setup Required'}</h3>
+            <p>{'Your GitHub token is configured via environment variables.' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else 'To edit your GitHub CSV directly, you need to set the GITHUB_TOKEN environment variable.'}</p>
         </div>
         
         <h3>How It Works:</h3>
         <ul>
             <li><strong>Read Access:</strong> Anyone can view your parts (uses public GitHub URL)</li>
-            <li><strong>Write Access:</strong> Requires GitHub Personal Access Token to commit changes</li>
+            <li><strong>Write Access:</strong> Requires GITHUB_TOKEN environment variable</li>
         </ul>
         
-        <h3>Setup GitHub Token (for editing):</h3>
+        <h3>Setup Instructions:</h3>
         <ol>
-            <li>Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal Access Tokens</a></li>
-            <li>Click "Generate new token (classic)"</li>
-            <li>Give it a name like "Stock System Catalogue"</li>
-            <li>Select scopes: <code>repo</code> (full repository access)</li>
-            <li>Copy your token (starts with <code>ghp_</code>)</li>
-            <li>In your <code>app.py</code>, replace:<br>
-                <code>GITHUB_TOKEN = "your_github_token_here"</code><br>
-                with your actual token</li>
+            <li><strong>Get GitHub Token:</strong>
+                <ul>
+                    <li>Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal Access Tokens</a></li>
+                    <li>Click "Generate new token (classic)"</li>
+                    <li>Give it a name like "Stock System Catalogue"</li>
+                    <li>Select scopes: <code>repo</code> (full repository access)</li>
+                    <li>Copy your token (starts with <code>ghp_</code>)</li>
+                </ul>
+            </li>
+            <li><strong>Set Environment Variable in Render:</strong>
+                <ul>
+                    <li>Go to your Render dashboard</li>
+                    <li>Select your web service</li>
+                    <li>Go to "Environment" tab</li>
+                    <li>Click "Add Environment Variable"</li>
+                    <li>Set: <code>GITHUB_TOKEN</code> = your token value</li>
+                    <li>Deploy the changes</li>
+                </ul>
+            </li>
         </ol>
         
         <h3>Current Configuration:</h3>
         <ul>
             <li><strong>Repository:</strong> {GITHUB_REPO}</li>
             <li><strong>File:</strong> {CSV_FILE_PATH}</li>
-            <li><strong>Token Status:</strong> {'✅ Configured' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Not configured'}</li>
+            <li><strong>Token Status:</strong> {'✅ Configured' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '❌ Not configured'}</li>
             <li><strong>Read Access:</strong> ✅ Available (public)</li>
-            <li><strong>Write Access:</strong> {'✅ Available' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Requires token'}</li>
+            <li><strong>Write Access:</strong> {'✅ Available' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '❌ Requires GITHUB_TOKEN env var'}</li>
         </ul>
         
-        <p><a href="/admin/catalogue/test_github">→ Test Connection</a> | <a href="/admin/catalogue">→ Open Catalogue</a> | <a href="/">← Home</a></p>
+        <p><a href="/admin/catalogue/test_github">→ Test Connection</a> | <a href="/admin/catalogue">→ Open Catalogue</a> | <a href="/admin/env_status">→ Check All Environment Variables</a> | <a href="/">← Home</a></p>
     </div>
     """
 
@@ -828,6 +935,9 @@ def catalogue_setup():
 @app.route("/admin/test_dummy_dispatch_email")
 def test_dummy_dispatch_email():
     """Send a test dispatch email with dummy data"""
+    if not app.config["MAIL_PASSWORD"]:
+        return "❌ Cannot test email - MAIL_PASSWORD environment variable not set"
+    
     # Create dummy objects for testing
     dispatch = SimpleNamespace(
         engineer_email="engineer@example.com",
@@ -869,15 +979,18 @@ def test_dummy_dispatch_email():
                 f"- {bo.part_number} ({bo.description}): {remaining} (Ordered {bo.order.date.strftime('%d %b %Y')})"
             )
 
-    # Send test email
-    msg = Message(
-        subject=f"Dispatch Note - {dispatch.date.strftime('%d %b %Y')}",
-        recipients=["tomward0606@gmail.com"],
-        body="\n".join(text_lines),
-    )
-    msg.html = build_html_email(sent_items, back_orders, dispatch)
-    mail.send(msg)
-    return "Dummy dispatch email sent to tomward0606@gmail.com"
+    try:
+        # Send test email
+        msg = Message(
+            subject=f"Test Dispatch Note - {dispatch.date.strftime('%d %b %Y')}",
+            recipients=["tomward0606@gmail.com"],
+            body="\n".join(text_lines),
+        )
+        msg.html = build_html_email(sent_items, back_orders, dispatch)
+        mail.send(msg)
+        return "✅ Dummy dispatch email sent successfully to tomward0606@gmail.com"
+    except Exception as e:
+        return f"❌ Email test failed: {str(e)}"
 
 # ── Legacy Routes (Backward Compatibility) ────────────────────────────────────
 
@@ -901,20 +1014,45 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         print("Database tables created successfully!")
-        print("Starting Servitech Stock System...")
+        
+        # Security check
+        missing_required, missing_optional = check_required_env_vars()
+        
+        print("\n" + "="*60)
+        print("🔐 SECURITY STATUS")
+        print("="*60)
+        
+        if not missing_required:
+            print("✅ All required environment variables are set")
+        else:
+            print("❌ MISSING REQUIRED ENVIRONMENT VARIABLES:")
+            for var in missing_required:
+                print(f"   {var}")
+            print("\n⚠️  Your application may not work correctly!")
+        
+        if missing_optional:
+            print("\n⚠️  Optional environment variables not set:")
+            for var in missing_optional:
+                print(f"   {var}")
+        
+        print("\n" + "="*60)
+        print("🚀 STARTING SERVITECH STOCK SYSTEM")
+        print("="*60)
         print(f"Access your application at: http://localhost:5000")
-        print("\nAvailable admin routes:")
+        print("\nAvailable routes:")
         print("  • /                           - Main dashboard")
+        print("  • /admin/env_status           - Environment variables status")
         print("  • /admin/parts_orders_list    - Outstanding orders summary")
         print("  • /admin/dispatched_orders    - Dispatch history")
         print("  • /admin/catalogue            - Parts catalogue manager (GitHub CSV)")
         print("  • /admin/catalogue/setup      - GitHub integration setup")
         print("  • /admin/catalogue/test_github - Test GitHub CSV connection")
         print("  • /test_email                 - Test email configuration")
-        print("\nGitHub CSV Configuration:")
-        print(f"  • Repository: {GITHUB_REPO}")
-        print(f"  • File: {CSV_FILE_PATH}")
-        print(f"  • Token: {'✅ Configured' if GITHUB_TOKEN != 'your_github_token_here' else '❌ Not configured'}")
+        
+        print(f"\n📧 Email Status: {'✅ Configured' if os.environ.get('MAIL_PASSWORD') else '❌ Not configured'}")
+        print(f"🔗 GitHub Status: {'✅ Configured' if GITHUB_TOKEN and GITHUB_TOKEN != 'your_github_token_here' else '❌ Read-only mode'}")
+        print("="*60 + "\n")
         
     app.run(debug=True)
+
 
