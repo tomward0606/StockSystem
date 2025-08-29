@@ -127,7 +127,7 @@
           <img src="{{ url_for('static', filename='logo.png') }}" alt="Servitech logo" class="hero-logo">
           <div>
             <h2 class="h4 mb-1">Parts Catalogue Manager</h2>
-            <p class="mb-0 text-muted">Manage your complete parts inventory with inline editing</p>
+            <p class="mb-0 text-muted">Manage your complete parts inventory with direct GitHub integration</p>
           </div>
         </div>
         <div class="d-flex gap-2">
@@ -135,27 +135,25 @@
         </div>
       </div>
 
-      <!-- Sync Section -->
+      <!-- GitHub Integration Section -->
       <div class="section-card">
         <div class="card-header section-header">
           <div class="d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-cloud-download me-2"></i>GitHub CSV Sync</span>
-            <small class="text-muted">Last synced: {{ moment().format() if parts else 'Never' }}</small>
+            <span><i class="bi bi-github me-2"></i>GitHub CSV Integration</span>
+            <small class="text-muted">Direct repository editing</small>
           </div>
         </div>
         <div class="card-body">
           <div class="row align-items-center">
             <div class="col-md-8">
-              <p class="mb-2">Sync with <code>tomward0606/PartsProjectMain/parts.csv</code></p>
-              <small class="text-muted">This will overwrite local changes with the latest GitHub data.</small>
+              <p class="mb-2">Connected to <code>tomward0606/PartsProjectMain/parts.csv</code></p>
+              <small class="text-muted">All changes are committed directly to your GitHub repository with full version control.</small>
             </div>
             <div class="col-md-4 text-end">
-              <form method="post" action="{{ url_for('sync_catalogue') }}" class="d-inline">
-                <button type="submit" class="btn btn-primary" onclick="return confirm('This will overwrite local changes. Continue?')">
-                  <i class="bi bi-arrow-repeat me-1"></i> Sync from GitHub
-                </button>
-              </form>
-              <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary ms-2">
+              <a href="/admin/catalogue/test_github" class="btn btn-outline-primary me-2">
+                <i class="bi bi-github me-1"></i> Test Connection
+              </a>
+              <a href="{{ url_for('export_catalogue') }}" class="btn btn-outline-secondary">
                 <i class="bi bi-download me-1"></i> Export CSV
               </a>
             </div>
@@ -197,7 +195,7 @@
               </div>
               <div class="col-12 text-end">
                 <button type="submit" class="btn btn-success">
-                  <i class="bi bi-plus me-1"></i> Add Part
+                  <i class="bi bi-plus me-1"></i> Add Part to GitHub
                 </button>
               </div>
             </div>
@@ -241,7 +239,7 @@
       <div class="section-card">
         <div class="card-header section-header">
           <i class="bi bi-grid me-2"></i>Parts Catalogue
-          <small class="text-muted ms-2">Click any field to edit</small>
+          <small class="text-muted ms-2">Click any field to edit • Changes commit to GitHub</small>
         </div>
         <div class="card-body p-0">
           {% if parts %}
@@ -270,7 +268,7 @@
                   <td class="text-center">
                     <button class="btn btn-sm btn-outline-danger delete-part" 
                             data-product-code="{{ part.product_code }}"
-                            title="Delete part">
+                            title="Delete part from GitHub">
                       <i class="bi bi-trash"></i>
                     </button>
                   </td>
@@ -282,7 +280,10 @@
           {% else %}
           <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox display-4"></i>
-            <p class="mt-3">No parts found. Try syncing from GitHub or adjusting your filters.</p>
+            <p class="mt-3">No parts found. Try adjusting your filters or check your GitHub connection.</p>
+            <a href="/admin/catalogue/test_github" class="btn btn-outline-primary">
+              <i class="bi bi-github me-1"></i> Test GitHub Connection
+            </a>
           </div>
           {% endif %}
         </div>
@@ -293,11 +294,11 @@
         <h6><i class="bi bi-info-circle me-2"></i>How to Use</h6>
         <ul class="mb-0 small">
           <li><strong>Edit:</strong> Click any field (except Product Code) to edit it inline</li>
-          <li><strong>Save:</strong> Press Enter or click outside the field to save</li>
+          <li><strong>Save:</strong> Press Enter or click outside the field to save and commit to GitHub</li>
           <li><strong>Cancel:</strong> Press Escape to cancel editing</li>
-          <li><strong>Delete:</strong> Use the trash icon to permanently remove a part</li>
-          <li><strong>Sync:</strong> Pull latest data from your GitHub CSV (overwrites local changes)</li>
-          <li><strong>Export:</strong> Download current catalogue as CSV for backup or GitHub upload</li>
+          <li><strong>Delete:</strong> Use the trash icon to permanently remove a part from GitHub</li>
+          <li><strong>Add:</strong> Use the form above to add new parts directly to your repository</li>
+          <li><strong>Version Control:</strong> All changes create commits in your GitHub repository</li>
         </ul>
       </div>
 
@@ -367,7 +368,7 @@
           cell.textContent = originalValue || '—';
           showToast('Error updating part: ' + data.message, 'error');
         } else {
-          showToast('Part updated successfully', 'success');
+          showToast('Part updated in GitHub successfully', 'success');
         }
       })
       .catch(error => {
@@ -384,7 +385,7 @@
     }
 
     function deletePart(productCode) {
-      if (!confirm(`Are you sure you want to permanently delete part "${productCode}"?`)) {
+      if (!confirm(`Are you sure you want to permanently delete part "${productCode}" from GitHub?`)) {
         return;
       }
 
@@ -399,7 +400,7 @@
           if (row) {
             row.remove();
           }
-          showToast('Part deleted successfully', 'success');
+          showToast('Part deleted from GitHub successfully', 'success');
         } else {
           showToast('Error deleting part: ' + data.message, 'error');
         }
