@@ -796,6 +796,74 @@ def debug_test():
     </div>
     """
 
+
+# Add this test route to your app.py to debug edit/delete
+
+@app.route("/admin/catalogue/test_edit", methods=["GET", "POST"])
+def test_edit():
+    """Simple test route to debug edit functionality"""
+    if request.method == "POST":
+        product_code = request.form.get('product_code')
+        field_name = request.form.get('field_name') 
+        new_value = request.form.get('new_value')
+        
+        print(f"=== TEST EDIT FORM DATA ===")
+        print(f"Product Code: '{product_code}'")
+        print(f"Field Name: '{field_name}'")
+        print(f"New Value: '{new_value}'")
+        
+        # Try the same logic as the real edit
+        csv_content, sha = get_github_file_info()
+        if csv_content:
+            parts = parse_csv_content(csv_content)
+            print(f"Found {len(parts)} parts")
+            
+            # Find the part
+            part_index = None
+            for i, part in enumerate(parts):
+                if part['product_code'] == product_code:
+                    part_index = i
+                    break
+            
+            if part_index is not None:
+                print(f"Found part at index {part_index}")
+                parts[part_index][field_name] = new_value
+                success, message = update_github_csv(parts, sha, f"Test update: {product_code}")
+                return f"<h2>Update Result</h2><p>Success: {success}</p><p>Message: {message}</p><p><a href='/admin/catalogue/test_edit'>Try Again</a></p>"
+            else:
+                return f"<h2>Error</h2><p>Part '{product_code}' not found</p><p><a href='/admin/catalogue/test_edit'>Try Again</a></p>"
+        else:
+            return "<h2>Error</h2><p>Could not fetch CSV</p><p><a href='/admin/catalogue/test_edit'>Try Again</a></p>"
+    
+    # GET request - show test form
+    return """
+    <div style="font-family: system-ui; padding: 40px; max-width: 600px; margin: 0 auto;">
+        <h2>Test Edit Functionality</h2>
+        <form method="post">
+            <div style="margin-bottom: 15px;">
+                <label>Product Code:</label><br>
+                <input name="product_code" value="01-11-300" style="width: 100%; padding: 8px;" placeholder="e.g. 01-11-300">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label>Field to Update:</label><br>
+                <select name="field_name" style="width: 100%; padding: 8px;">
+                    <option value="description">Description</option>
+                    <option value="category">Category</option>
+                    <option value="make">Make</option>
+                    <option value="manufacturer">Manufacturer</option>
+                    <option value="image">Image</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label>New Value:</label><br>
+                <input name="new_value" style="width: 100%; padding: 8px;" placeholder="Enter new value">
+            </div>
+            <button type="submit" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px;">Test Update</button>
+        </form>
+        <p><a href="/admin/catalogue">← Back to Catalogue</a></p>
+    </div>
+    """
+
 # ── Legacy Routes ─────────────────────────────────────────────────────────────
 
 @app.route("/admin/hidden-parts")
@@ -809,3 +877,4 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
