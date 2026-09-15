@@ -40,10 +40,10 @@ app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or (
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Email configuration
-app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp-mail.outlook.com")
 app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
 app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "True").lower() == "true"
-app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "servitech.stock@gmail.com")
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "stocksystemservitech@outlook.com")
 app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD")
 app.config["MAIL_DEFAULT_SENDER"] = ("Servitech Stock", app.config["MAIL_USERNAME"])
 
