@@ -16,6 +16,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 from sqlalchemy import func
+from sqlalchemy.engine import make_url
 import requests
 from urllib.parse import unquote
 
@@ -30,9 +31,15 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key-change-in-produ
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+if DATABASE_URL:
+    database_url = make_url(DATABASE_URL)
+    if database_url.drivername in {"postgresql", "postgresql+psycopg"}:
+        DATABASE_URL = database_url.set(
+            drivername="postgresql+psycopg2"
+        ).render_as_string(hide_password=False)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or (
-    "postgresql://servitech_db_user:"
+    "postgresql+psycopg2://servitech_db_user:"
     "79U6KaAxlHdUfOeEt1iVDc65KXFLPie2"
     "@dpg-d1ckf9ur433s73fti9p0-a.oregon-postgres.render.com"
     "/servitech_db?sslmode=require"
