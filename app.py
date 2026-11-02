@@ -178,7 +178,6 @@ def get_github_file_info():
         print("ERROR: No GITHUB_TOKEN provided")
         return None, None
     
-    print(f"Using GITHUB_TOKEN: {GITHUB_TOKEN[:10]}...")
     print(f"Repository: {GITHUB_REPO}")
     print(f"File path: {CSV_FILE_PATH}")
     
@@ -191,12 +190,10 @@ def get_github_file_info():
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28'
         }
-        print(f"Request headers: {headers}")
         
         print("Making request to GitHub API...")
         response = requests.get(api_url, headers=headers, timeout=10)
         print(f"Response status: {response.status_code}")
-        print(f"Response headers: {dict(response.headers)}")
         
         if response.status_code != 200:
             print(f"ERROR: GitHub API returned {response.status_code}")
@@ -266,7 +263,6 @@ def update_github_csv(parts_list, sha, commit_message):
             'X-GitHub-Api-Version': '2022-11-28',
             'Content-Type': 'application/json'
         }
-        print(f"Update headers: {headers}")
         
         encoded_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
         print(f"Encoded content length: {len(encoded_content)}")
@@ -281,7 +277,6 @@ def update_github_csv(parts_list, sha, commit_message):
         print("Making PUT request to GitHub...")
         response = requests.put(api_url, json=data, headers=headers, timeout=30)
         print(f"PUT response status: {response.status_code}")
-        print(f"PUT response headers: {dict(response.headers)}")
         
         if response.status_code not in [200, 201]:
             print(f"ERROR: GitHub PUT returned {response.status_code}")
@@ -871,6 +866,3 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(debug=True)
-
-
-
